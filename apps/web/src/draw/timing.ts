@@ -1,3 +1,5 @@
+import type { SpinPlan } from "./spin";
+
 /** 抽選演出の各段階の長さ（秒）。試作画面のつまみで変えて、ちょうどよい値を探す */
 export interface DrawTiming {
   /** 回し始めてから玉が飛び出すまでの長さ（溜め）。玉が出た後も胴は惰性で少し回る */
@@ -24,16 +26,19 @@ export const DEFAULT_TIMING: DrawTiming = {
   holdSeconds: 4,
 };
 
-/** 演出の中で音を鳴らすきっかけ（音は後で付ける） */
+/** 演出の中で音を鳴らすきっかけ */
 export type DrawCue =
-  /** ガラガラを回し始めた */
-  | { readonly type: "spinStart" }
+  /** ガラガラを回し始めた（回転の予定つき。音を回転の速さに合わせるため） */
+  | { readonly type: "spinStart"; readonly plan: SpinPlan }
   /** 玉が出口から飛び出した */
   | { readonly type: "eject" }
-  /** 玉が金属の受け皿に落ちた（跳ねるたびに呼ばれる。strength は 0〜1 の強さ） */
-  | { readonly type: "land"; readonly strength: number }
+  /** 玉が落ちた。surface は落ちた場所（金属の坂か、毛せんの受け皿か）、strength は 0〜1 の強さ */
+  | {
+      readonly type: "land";
+      readonly surface: "chute" | "tray";
+      readonly strength: number;
+    }
+  /** 玉が坂を転がり始めた（seconds 秒で転がり終わる） */
+  | { readonly type: "roll"; readonly seconds: number }
   /** 番号を発表した */
   | { readonly type: "reveal" };
-
-/** 受け皿の種類。felt は赤い毛せん張りの木の箱（本物の木製の抽選器でよく使われる）、metal は金属の皿 */
-export type TrayStyle = "felt" | "metal";

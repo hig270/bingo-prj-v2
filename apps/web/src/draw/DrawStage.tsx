@@ -7,7 +7,14 @@ import styles from "./DrawStage.module.scss";
 import { Garagara, GaragaraDefs, TrayFront } from "./Garagara";
 import { GEOMETRY as G } from "./geometry";
 import { letterOf } from "./letter";
-import type { DrawCue, DrawTiming, TrayStyle } from "./timing";
+import {
+  COAST_DEGREES,
+  coastEase,
+  SPIN_END_SPEED,
+  spinEase,
+  type SpinPlan,
+} from "./spin";
+import type { DrawCue, DrawTiming } from "./timing";
 
 export interface PlayOptions {
   readonly timing: DrawTiming;
@@ -25,8 +32,6 @@ export interface DrawStageHandle {
 
 interface Props {
   readonly ref: Ref<DrawStageHandle>;
-  /** 受け皿の種類 */
-  readonly tray: TrayStyle;
 }
 
 interface Bounce {
@@ -39,37 +44,14 @@ interface Bounce {
 }
 
 /**
- * 受け皿に落ちてからの跳ね方。金属は硬いので何度も跳ね、
- * 毛せんは勢いを吸うので小さく1回跳ねて、少し転がって止まる
+ * 受け皿（毛せん）に落ちてからの跳ね方。毛せんは勢いを吸うので、小さく1回跳ねて少し転がって止まる
  */
-const BOUNCES: Record<TrayStyle, readonly Bounce[]> = {
-  metal: [
-    { height: 0, dx: 0, strength: 1 },
-    { height: 42, dx: 8, strength: 0.55 },
-    { height: 16, dx: 4, strength: 0.3 },
-    { height: 5, dx: 1, strength: 0.15 },
-  ],
-  felt: [
-    { height: 0, dx: 0, strength: 0.6 },
-    { height: 7, dx: 6, strength: 0.15 },
-  ],
-};
-
-/** 跳ね終わってから転がる距離（毛せんの上は少し転がって止まる） */
-const SETTLE_ROLL: Record<TrayStyle, number> = { metal: 0, felt: 10 };
-
-// 胴の回り方: 最初の ACCEL の割合の時間で加速し、その後は一定の速さで回す（手で回すときの感じ）。
-// 玉が出た後は、その速さから惰性でだんだん遅くなって止まる
-const ACCEL = 0.35;
-/** 加速してから一定で回る進み方（0〜1 → 0〜1）。終わりの速さは平均の SPIN_END_SPEED 倍 */
-const SPIN_END_SPEED = 1 / (1 - ACCEL / 2);
-const spinEase = (p: number) =>
-  p < ACCEL
-    ? (SPIN_END_SPEED * p * p) / (2 * ACCEL)
-    : SPIN_END_SPEED * (p - ACCEL / 2);
-const easeOutQuad = (p: number) => 1 - (1 - p) * (1 - p);
-/** 玉が出た後に惰性で回る角度 */
-const COAST_DEGREES = 110;
+const BOUNCES: readonly Bounce[] = [
+  { height: 0, dx: 0, strength: 0.6 },
+  { height: 7, dx: 6, strength: 0.15 },
+];
+/** 跳ね終わってから転がる距離 */
+const SETTLE_ROLL = 10;
 
 /** a を b で割った余り（常に 0 以上） */
 const mod = (a: number, b: number) => ((a % b) + b) % b;
@@ -78,7 +60,7 @@ const mod = (a: number, b: number) => ((a % b) + b) % b;
  * ホスト画面の抽選演出（ガラガラ → 玉が飛び出す → 発表）。
  * どの番号を出すかは外（本番ではサーバー）が決め、この部品は見せ方だけを受け持つ。
  */
-export function DrawStage({ ref, tray }: Props) {
+export function DrawStage({ ref }: Props) {
   const [scope, animate] = useAnimate<HTMLDivElement>();
   const shakerRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<SVGGElement>(null);
@@ -151,7 +133,13 @@ export function DrawStage({ ref, tray }: Props) {
       drumAngle.current = stopAt;
       const total = timing.spinSeconds + coastSeconds;
 
-      onCue?.({ type: "spinStart" });
+      const plan: SpinPlan = {
+        ejectSeconds: timing.spinSeconds,
+        ejectDegrees: spinDegrees,
+        coastSeconds,
+        coastDegrees: COAST_DEGREES,
+      };
+      onCue?.({ type: "spinStart", plan });
       const rattle = animate(
         body,
         { y: [0, -3, 1, -2, 0], x: [0, 1, -1, 0] },
@@ -163,7 +151,7 @@ export function DrawStage({ ref, tray }: Props) {
         {
           duration: total,
           times: [0, timing.spinSeconds / total, 1],
-          ease: [spinEase, easeOutQuad],
+          ease: [spinEase, coastEase],
         },
       );
       void spin.then(() => {
@@ -187,7 +175,8 @@ export function DrawStage({ ref, tray }: Props) {
         },
         { duration: 0.42, times: [0, 0.45, 1], ease: ["easeOut", "easeIn"] },
       );
-      onCue?.({ type: "land", strength: 0.4 });
+      onCue?.({ type: "land", surface: "chute", strength: 0.5 });
+      onCue?.({ type: "roll", seconds: timing.rollSeconds });
 
       // 坂を転がる距離から、玉の回転数を決める（滑らずに転がって見えるように）
       const chuteEnd = at(G.chuteEnd);
@@ -202,7 +191,7 @@ export function DrawStage({ ref, tray }: Props) {
         { duration: timing.rollSeconds, ease: [0.4, 0, 1, 1] },
       );
 
-      // 3. 坂の端から受け皿に落ち、跳ねて止まる（跳ね方は受け皿の種類で変わる）
+      // 3. 坂の端から受け皿に落ち、跳ねて止まる
       const rest = at(G.rest);
       // 最初は坂の端から皿の中央へ放物線で落ちる
       await animate(
@@ -216,8 +205,8 @@ export function DrawStage({ ref, tray }: Props) {
       );
       let x = rest.x;
       let angle = rolled + 90;
-      for (const b of BOUNCES[tray]) {
-        onCue?.({ type: "land", strength: b.strength });
+      for (const b of BOUNCES) {
+        onCue?.({ type: "land", surface: "tray", strength: b.strength });
         if (b.height === 0) continue;
         const nextX = x + b.dx * unit;
         angle += b.dx * 3;
@@ -238,10 +227,9 @@ export function DrawStage({ ref, tray }: Props) {
         x = nextX;
       }
 
-      const settle = SETTLE_ROLL[tray];
-      if (settle > 0) {
-        angle += (360 * settle) / (2 * Math.PI * G.ballR);
-        x += settle * unit;
+      {
+        angle += (360 * SETTLE_ROLL) / (2 * Math.PI * G.ballR);
+        x += SETTLE_ROLL * unit;
         await animate(
           ball,
           { x, rotate: angle },
@@ -324,7 +312,7 @@ export function DrawStage({ ref, tray }: Props) {
       <div ref={shakerRef} className={styles.shaker}>
         <svg className={styles.svg} viewBox={viewBox} aria-hidden>
           <GaragaraDefs />
-          <Garagara drumRef={drumRef} bodyRef={bodyRef} tray={tray} />
+          <Garagara drumRef={drumRef} bodyRef={bodyRef} />
         </svg>
         <div ref={raysRef} className={styles.rays} />
         <div
@@ -340,7 +328,7 @@ export function DrawStage({ ref, tray }: Props) {
         </div>
         {/* 受け皿の手前の縁は玉より手前に描く（玉の下の方が縁に隠れて、皿に入って見える） */}
         <svg className={styles.svg} viewBox={viewBox} aria-hidden>
-          <TrayFront tray={tray} />
+          <TrayFront />
         </svg>
       </div>
       <div ref={flashRef} className={styles.flash} />

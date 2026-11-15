@@ -20,8 +20,9 @@ const spoutLength = 34;
 /** 玉が飛び出す瞬間の口金の向き（受け皿側を向いたとき） */
 const ejectAngle = 40;
 
-const chute = { x1: 800, y1: 652, x2: 1062, y2: 718 } as const;
-const tray = { cx: 1160, rimY: 748, rx: 96, ry: 24 } as const;
+// 坂の下の端は、受け皿の箱の左の板より手前で終わらせる（玉は板を飛び越えて箱に落ちる）
+const chute = { x1: 800, y1: 652, x2: 1008, y2: 704 } as const;
+const tray = { cx: 1160, rimY: 748 } as const;
 const floorY = 800;
 
 function polar(angleDeg: number, distance: number): Point {
@@ -59,7 +60,7 @@ export const GEOMETRY = {
   ejectPeak: { x: ejectFrom.x + 46, y: ejectFrom.y - 34 },
   chuteStart: onChute(0.12),
   chuteEnd: onChute(1),
-  /** 受け皿の中で止まった位置（下の方は皿の手前の縁に隠れる） */
+  /** 受け皿の中で止まった位置（下の方は箱の手前の板に隠れる） */
   rest: { x: tray.cx, y: tray.rimY - 10 },
   /** 発表のときに玉が寄る位置と、そのときの大きさ（倍率） */
   reveal: { x: 1090, y: 390, scale: 6 },
