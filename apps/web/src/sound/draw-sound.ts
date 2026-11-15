@@ -1,19 +1,61 @@
-import { angleAt, speedAt, type SpinPlan } from "../draw/spin";
+import { speedAt, type SpinPlan } from "../draw/spin";
 import type { DrawCue } from "../draw/timing";
+import { SOUND_SOURCES, type SoundName } from "./sources";
+
+/** 発表の音の候補 */
+export type RevealSound = "jajean" | "jean" | "rollFinish" | "trumpet";
+/** ドラムロールを鳴らす区間（鳴らさない／受け皿に止まってから発表まで／回し始めから発表まで） */
+export type DrumRollMode = "off" | "tease" | "spin";
+
+/** 試作画面で切り替えて比べる、音の組み合わせ */
+export interface SoundOptions {
+  readonly reveal: RevealSound;
+  readonly drumRoll: DrumRollMode;
+  /** 発表に歓声と拍手を重ねるか */
+  readonly cheer: boolean;
+}
+
+export const DEFAULT_SOUND_OPTIONS: SoundOptions = {
+  reveal: "jajean",
+  drumRoll: "off",
+  cheer: false,
+};
+
+/** ラッパのファンファーレは盛り上がりの頂点が頭から 0.8 秒あたりにあるので、そこを発表の瞬間に合わせる */
+const REVEAL_LEAD: Record<RevealSound, number> = {
+  jajean: 0,
+  jean: 0,
+  rollFinish: 0,
+  trumpet: 0.8,
+};
+
+/** 「抽選機を回す」の音で、繰り返しに使う区間（立ち上がりと消え際を除いた中ほど） */
+const RATTLE_LOOP = { start: 0.5, end: 3.0 } as const;
+/** 「抽選機から玉が出る」の音の、最初の「コトッ」の長さ */
+const BALL_HIT_SECONDS = 0.12;
+/** ドラムロールの頭の一打を飛ばして、連打の部分から鳴らす */
+const DRUM_ROLL_OFFSET = 0.4;
+const DRUM_ROLL_LOOP = { start: 1.0, end: 4.2 } as const;
 
 /**
- * 抽選演出の効果音。音のファイルは使わず、Web Audio API でその場で合成する
- * （利用条件の心配がなく、回す長さなどに合わせて音を変えられる）。
+ * 抽選演出の効果音（効果音ラボの素材を、演出のきっかけに合わせて鳴らす）。
  *
  * ブラウザは、利用者の操作（ボタンを押すなど）の中でないと音を出させない。
  * そのため、最初に音を出す前に、ボタンを押したときの処理の中で unlock() を呼ぶ。
+ * 音のファイルは unlock() のときに読み込み始める（演出の前に読み込みを終えておく）。
  */
 export class DrawSound {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private noise: AudioBuffer | null = null;
+  private readonly buffers = new Map<SoundName, AudioBuffer>();
+  private loading: Promise<readonly SoundName[]> | null = null;
   private muted = false;
-
+  private options: SoundOptions = DEFAULT_SOUND_OPTIONS;
+  /** 鳴っているドラムロール（発表の瞬間に止める） */
+  private drumRoll: { source: AudioBufferSourceNode; gain: GainNode } | null =
+    null;
+  /** 受け皿に落ちた回数（最初の1回だけ「玉が出る」の音を丸ごと鳴らす） */
+  private trayLands = 0;
   private readonly random: () => number;
 
   /** random は音のばらつきに使う乱数（テストで固定できるように外から渡せる） */
@@ -21,352 +63,202 @@ export class DrawSound {
     this.random = random;
   }
 
-  /** ボタンを押したときの処理の中で呼ぶ */
-  unlock(): void {
+  /**
+   * ボタンを押したときの処理の中で呼ぶ。
+   * 読み込めなかった音の名前の一覧を返す（ファイルが置かれていないなど）
+   */
+  unlock(): Promise<readonly SoundName[]> {
     if (this.ctx === null) {
       const ctx = new AudioContext();
       // 音が重なって大きくなりすぎても割れないように、最後に音量をならす
       const compressor = ctx.createDynamicsCompressor();
-      compressor.threshold.value = -12;
-      compressor.ratio.value = 6;
+      compressor.threshold.value = -10;
+      compressor.ratio.value = 4;
       const master = ctx.createGain();
-      master.gain.value = this.muted ? 0 : 0.9;
+      master.gain.value = this.muted ? 0 : 1;
       master.connect(compressor).connect(ctx.destination);
       this.ctx = ctx;
       this.master = master;
-      this.noise = makeNoise(ctx, this.random);
+      this.loading = this.load(ctx);
     }
     void this.ctx.resume();
+    return this.loading ?? Promise.resolve([]);
   }
 
   setMuted(muted: boolean): void {
     this.muted = muted;
     if (this.master !== null && this.ctx !== null) {
       this.master.gain.setTargetAtTime(
-        muted ? 0 : 0.9,
+        muted ? 0 : 1,
         this.ctx.currentTime,
         0.02,
       );
     }
   }
 
+  setOptions(options: SoundOptions): void {
+    this.options = options;
+  }
+
   /** 演出のきっかけに合わせて音を鳴らす */
   play(cue: DrawCue): void {
     const ctx = this.ctx;
-    const master = this.master;
-    const noise = this.noise;
-    if (ctx === null || master === null || noise === null) return;
-    const v: Voice = { ctx, out: master, noise, random: this.random };
-    const now = ctx.currentTime + 0.01;
+    if (ctx === null) return;
+    const now = ctx.currentTime + 0.005;
     switch (cue.type) {
       case "spinStart":
-        rattle(v, now, cue.plan);
+        this.trayLands = 0;
+        this.rattle(now, cue.plan);
+        if (this.options.drumRoll === "spin") this.startDrumRoll(now);
         return;
       case "eject":
-        woodKnock(v, now, 0.7);
+        this.ballHit(now, 0.7, 1);
         return;
       case "land":
-        if (cue.surface === "chute") metalPing(v, now, cue.strength);
-        else feltThud(v, now, cue.strength);
+        if (cue.surface === "chute") {
+          // 金属の坂に当たる音は、少し高くして硬い感じにする
+          this.ballHit(now, 0.5 * cue.strength + 0.2, 1.3);
+          return;
+        }
+        this.trayLands += 1;
+        if (this.trayLands === 1) {
+          // 受け皿に落ちて跳ねる音は「玉が出る」の音を丸ごと使う（後ろに小さな跳ね返りが入っている）
+          this.sample("ball", now, {
+            gain: 0.9,
+            rate: 0.97 + this.random() * 0.06,
+          });
+        }
         return;
       case "roll":
-        metalRoll(v, now, cue.seconds);
+        // 坂を転がる音は合う素材がないので鳴らさない
         return;
+      case "revealSoon": {
+        if (this.options.drumRoll === "tease") this.startDrumRoll(now);
+        // 盛り上がりの頂点が頭より後ろにある音は、発表の瞬間に頂点が来るよう早めに鳴らし始める
+        const lead = REVEAL_LEAD[this.options.reveal];
+        if (lead > 0) {
+          const startIn = cue.seconds - lead;
+          this.sample(this.options.reveal, now + Math.max(0, startIn), {
+            gain: 1,
+            offset: Math.max(0, -startIn),
+          });
+        }
+        return;
+      }
       case "reveal":
-        fanfare(v, now);
+        this.stopDrumRoll(now);
+        this.reveal(now);
         return;
     }
   }
-}
 
-// ---- ここから下は音の作り方 ----
+  // ---- ここから下は内部の処理 ----
 
-interface Voice {
-  readonly ctx: AudioContext;
-  readonly out: AudioNode;
-  readonly noise: AudioBuffer;
-  readonly random: () => number;
-}
-
-/** 2 秒分の白色雑音（いろいろな音の材料にする） */
-function makeNoise(ctx: AudioContext, random: () => number): AudioBuffer {
-  const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = random() * 2 - 1;
-  return buffer;
-}
-
-/** 音量の形: すぐ立ち上がり、decay 秒で消える */
-function envelope(
-  v: Voice,
-  t: number,
-  peak: number,
-  decay: number,
-  attack = 0.002,
-): GainNode {
-  const g = v.ctx.createGain();
-  g.gain.setValueAtTime(0, t);
-  g.gain.linearRampToValueAtTime(peak, t + attack);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
-  return g;
-}
-
-/** 雑音を、決まった高さの帯だけ通して短く鳴らす（ぶつかる音の材料） */
-function noiseHit(
-  v: Voice,
-  t: number,
-  o: {
-    type: BiquadFilterType;
-    freq: number;
-    q: number;
-    peak: number;
-    decay: number;
-  },
-): void {
-  const src = v.ctx.createBufferSource();
-  src.buffer = v.noise;
-  const filter = v.ctx.createBiquadFilter();
-  filter.type = o.type;
-  filter.frequency.value = o.freq;
-  filter.Q.value = o.q;
-  const g = envelope(v, t, o.peak, o.decay);
-  src.connect(filter).connect(g).connect(v.out);
-  // 雑音のどこから使うかを毎回ずらして、同じ音の繰り返しに聞こえないようにする
-  const length = o.decay + 0.05;
-  src.start(t, v.random() * Math.max(0, v.noise.duration - length), length);
-}
-
-/** 決まった高さの音を短く鳴らす */
-function tone(
-  v: Voice,
-  t: number,
-  o: {
-    type: OscillatorType;
-    freq: number;
-    toFreq?: number;
-    peak: number;
-    decay: number;
-    attack?: number;
-  },
-): void {
-  const osc = v.ctx.createOscillator();
-  osc.type = o.type;
-  osc.frequency.setValueAtTime(o.freq, t);
-  if (o.toFreq !== undefined) {
-    osc.frequency.exponentialRampToValueAtTime(o.toFreq, t + o.decay);
-  }
-  const g = envelope(v, t, o.peak, o.decay, o.attack);
-  osc.connect(g).connect(v.out);
-  osc.start(t);
-  osc.stop(t + (o.attack ?? 0.002) + o.decay + 0.05);
-}
-
-/**
- * ガラガラの音。胴の中で玉がぶつかり合う「カチャカチャ」を、回る速さに合わせて細かく鳴らす。
- * さらに、八角形の角を越えるたびに玉がまとめて隣の面へ落ちる「ゴロッ」を重ねる（回転と音がそろう）。
- */
-function rattle(v: Voice, start: number, plan: SpinPlan): void {
-  const total = plan.ejectSeconds + plan.coastSeconds;
-
-  // 玉同士・玉と木がぶつかる細かい音
-  let t = 0;
-  while (t < total) {
-    const speed = speedAt(plan, t);
-    if (speed > 0.05) {
-      noiseHit(v, start + t, {
-        type: "bandpass",
-        freq: 1600 + v.random() * 2800,
-        q: 6 + v.random() * 6,
-        peak: (0.12 + 0.28 * speed) * (0.4 + v.random() * 0.6),
-        decay: 0.015 + v.random() * 0.03,
-      });
-    }
-    const rate = 8 + 42 * speed; // 1 秒あたりの回数
-    t += (0.4 + v.random() * 1.2) / rate;
+  private async load(ctx: AudioContext): Promise<readonly SoundName[]> {
+    const names = Object.keys(SOUND_SOURCES) as SoundName[];
+    const results = await Promise.all(
+      names.map(async (name) => {
+        try {
+          const res = await fetch(`/sounds/${SOUND_SOURCES[name].file}`);
+          if (!res.ok) return name;
+          this.buffers.set(
+            name,
+            await ctx.decodeAudioData(await res.arrayBuffer()),
+          );
+          return null;
+        } catch {
+          return name;
+        }
+      }),
+    );
+    return results.filter((name) => name !== null);
   }
 
-  // 八角形の角（45 度ごと）を越える瞬間を探して「ゴロッ」を鳴らす
-  const step = 0.005;
-  let lastEdge = 0;
-  for (let s = step; s < total; s += step) {
-    const edge = Math.floor(angleAt(plan, s) / 45);
-    if (edge > lastEdge) {
-      lastEdge = edge;
-      const speed = speedAt(plan, s);
-      noiseHit(v, start + s, {
-        type: "lowpass",
-        freq: 500,
-        q: 1,
-        peak: 0.35 * (0.4 + speed),
-        decay: 0.09,
-      });
-      tone(v, start + s, {
-        type: "sine",
-        freq: 150,
-        toFreq: 90,
-        peak: 0.25 * (0.4 + speed),
-        decay: 0.1,
-      });
-    }
+  /** 音のファイル name を時刻 t に鳴らす（ファイルが無ければ何もしない） */
+  private sample(
+    name: SoundName,
+    t: number,
+    o: { gain: number; rate?: number; offset?: number; duration?: number },
+  ): { source: AudioBufferSourceNode; gain: GainNode } | null {
+    const ctx = this.ctx;
+    const master = this.master;
+    const buffer = this.buffers.get(name);
+    if (ctx === null || master === null || buffer === undefined) return null;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = o.rate ?? 1;
+    const gain = ctx.createGain();
+    gain.gain.value = o.gain;
+    source.connect(gain).connect(master);
+    source.start(Math.max(t, ctx.currentTime), o.offset ?? 0, o.duration);
+    return { source, gain };
   }
 
-  // 胴の中で玉が転がり続ける低い「ゴー」という響き
-  const src = v.ctx.createBufferSource();
-  src.buffer = v.noise;
-  src.loop = true;
-  const filter = v.ctx.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.frequency.value = 320;
-  const g = v.ctx.createGain();
-  g.gain.setValueAtTime(0, start);
-  const curve = Array.from(
-    { length: 64 },
-    (_, i) => 0.18 * speedAt(plan, (total * i) / 63),
-  );
-  g.gain.setValueCurveAtTime(curve, start, total);
-  src.connect(filter).connect(g).connect(v.out);
-  src.start(start);
-  src.stop(start + total + 0.05);
-}
-
-/** 玉が木の出口から飛び出す「コトッ」 */
-function woodKnock(v: Voice, t: number, strength: number): void {
-  tone(v, t, {
-    type: "triangle",
-    freq: 820,
-    toFreq: 380,
-    peak: 0.5 * strength,
-    decay: 0.07,
-  });
-  noiseHit(v, t, {
-    type: "bandpass",
-    freq: 2400,
-    q: 3,
-    peak: 0.4 * strength,
-    decay: 0.02,
-  });
-}
-
-/** 金属の坂に落ちる「チン」。金属らしく、整数倍でない高さの音を重ねる */
-function metalPing(v: Voice, t: number, strength: number): void {
-  const base = 1500 + v.random() * 120;
-  const partials = [
-    [1, 0.5, 0.45],
-    [2.76, 0.3, 0.3],
-    [5.4, 0.18, 0.18],
-    [8.93, 0.1, 0.1],
-  ] as const;
-  for (const [ratio, peak, decay] of partials) {
-    tone(v, t, {
-      type: "sine",
-      freq: base * ratio,
-      peak: peak * strength,
-      decay,
+  /** 「玉が出る」の音の最初の「コトッ」だけを鳴らす。毎回少し高さを変える */
+  private ballHit(t: number, gain: number, rate: number): void {
+    const played = this.sample("ball", t, {
+      gain,
+      rate: rate * (0.96 + this.random() * 0.08),
+      duration: BALL_HIT_SECONDS,
     });
-  }
-  noiseHit(v, t, {
-    type: "highpass",
-    freq: 5000,
-    q: 0.7,
-    peak: 0.2 * strength,
-    decay: 0.015,
-  });
-}
-
-/** 金属の坂を転がる「シャー」という音 */
-function metalRoll(v: Voice, t: number, seconds: number): void {
-  const src = v.ctx.createBufferSource();
-  src.buffer = v.noise;
-  src.loop = true;
-  const filter = v.ctx.createBiquadFilter();
-  filter.type = "bandpass";
-  filter.frequency.setValueAtTime(2200, t);
-  // 転がるにつれて速くなるので、音を少しずつ高く
-  filter.frequency.linearRampToValueAtTime(3600, t + seconds);
-  filter.Q.value = 1.2;
-  const g = v.ctx.createGain();
-  g.gain.setValueAtTime(0, t);
-  g.gain.linearRampToValueAtTime(0.07, t + 0.05);
-  g.gain.linearRampToValueAtTime(0.11, t + seconds * 0.9);
-  g.gain.linearRampToValueAtTime(0, t + seconds);
-  src.connect(filter).connect(g).connect(v.out);
-  src.start(t);
-  src.stop(t + seconds + 0.05);
-}
-
-/** 毛せんの受け皿に落ちる「ポスッ」。柔らかいので高い音を削った鈍い音 */
-function feltThud(v: Voice, t: number, strength: number): void {
-  noiseHit(v, t, {
-    type: "lowpass",
-    freq: 650,
-    q: 0.8,
-    peak: 0.7 * strength,
-    decay: 0.08,
-  });
-  tone(v, t, {
-    type: "sine",
-    freq: 130,
-    toFreq: 70,
-    peak: 0.6 * strength,
-    decay: 0.09,
-  });
-}
-
-/** 発表の「ジャーン」。低い一撃・金管風の和音・きらめき・シンバル風の響きを同時に */
-function fanfare(v: Voice, t: number): void {
-  // 低い一撃
-  tone(v, t, { type: "sine", freq: 90, toFreq: 38, peak: 0.9, decay: 0.45 });
-  noiseHit(v, t, {
-    type: "lowpass",
-    freq: 900,
-    q: 0.7,
-    peak: 0.5,
-    decay: 0.12,
-  });
-
-  // 金管風の和音（ド・ミ・ソ・ド）。少しずらした2つの音を重ねて厚みを出す
-  const chord = [523.25, 659.25, 783.99, 1046.5];
-  const filter = v.ctx.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.Q.value = 2;
-  filter.frequency.setValueAtTime(700, t);
-  filter.frequency.linearRampToValueAtTime(4200, t + 0.08);
-  filter.frequency.exponentialRampToValueAtTime(1600, t + 1.6);
-  const g = v.ctx.createGain();
-  g.gain.setValueAtTime(0, t);
-  g.gain.linearRampToValueAtTime(0.16, t + 0.03);
-  g.gain.setValueAtTime(0.16, t + 0.5);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
-  filter.connect(g).connect(v.out);
-  for (const freq of chord) {
-    for (const detune of [-7, 7]) {
-      const osc = v.ctx.createOscillator();
-      osc.type = "sawtooth";
-      osc.frequency.value = freq;
-      osc.detune.value = detune;
-      osc.connect(filter);
-      osc.start(t);
-      osc.stop(t + 2.3);
-    }
+    // 切った終わりで「プツッ」と鳴らないよう、最後を素早く消す
+    played?.gain.gain.setTargetAtTime(0, t + BALL_HIT_SECONDS * 0.6, 0.015);
   }
 
-  // きらめき（高い音を素早く駆け上がる）
-  const sparkle = [1567.98, 2093.0, 2637.02, 3135.96, 4186.01];
-  sparkle.forEach((freq, i) => {
-    tone(v, t + 0.05 + i * 0.055, {
-      type: "sine",
-      freq,
-      peak: 0.12,
-      decay: 0.35,
+  /**
+   * ガラガラの音。回す時間が長いときは中ほどを繰り返す。
+   * 回る速さに合わせて音量と高さを少し変え、胴が止まるのに合わせて消す
+   */
+  private rattle(t: number, plan: SpinPlan): void {
+    const played = this.sample("rattle", t, { gain: 0 });
+    if (played === null) return;
+    const { source, gain } = played;
+    const total = plan.ejectSeconds + plan.coastSeconds;
+    source.loop = true;
+    source.loopStart = RATTLE_LOOP.start;
+    source.loopEnd = RATTLE_LOOP.end;
+    const points = 64;
+    const speeds = Array.from({ length: points }, (_, i) =>
+      speedAt(plan, (total * i) / (points - 1)),
+    );
+    gain.gain.setValueCurveAtTime(
+      speeds.map((s, i) => (i === points - 1 ? 0 : 0.25 + 0.75 * s)),
+      t,
+      total,
+    );
+    source.playbackRate.setValueCurveAtTime(
+      speeds.map((s) => 0.9 + 0.15 * s),
+      t,
+      total,
+    );
+    source.stop(t + total + 0.05);
+  }
+
+  private startDrumRoll(t: number): void {
+    if (this.drumRoll !== null) return;
+    const played = this.sample("drumRoll", t, {
+      gain: 0.55,
+      offset: DRUM_ROLL_OFFSET,
     });
-  });
+    if (played === null) return;
+    played.source.loop = true;
+    played.source.loopStart = DRUM_ROLL_LOOP.start;
+    played.source.loopEnd = DRUM_ROLL_LOOP.end;
+    this.drumRoll = played;
+  }
 
-  // シンバル風の響き
-  noiseHit(v, t, {
-    type: "highpass",
-    freq: 6500,
-    q: 0.5,
-    peak: 0.22,
-    decay: 1.4,
-  });
+  private stopDrumRoll(t: number): void {
+    const roll = this.drumRoll;
+    if (roll === null) return;
+    roll.gain.gain.setTargetAtTime(0, t, 0.03);
+    roll.source.stop(t + 0.3);
+    this.drumRoll = null;
+  }
+
+  private reveal(t: number): void {
+    const { reveal, cheer } = this.options;
+    // 早めに鳴らし始める音（revealSoon で鳴らした）は、ここでは鳴らさない
+    if (REVEAL_LEAD[reveal] === 0) this.sample(reveal, t, { gain: 1 });
+    if (cheer) this.sample("cheer", t + 0.15, { gain: 0.6 });
+  }
 }

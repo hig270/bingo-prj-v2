@@ -4,13 +4,33 @@ import { createRoot } from "react-dom/client";
 import { DrawStage, type DrawStageHandle } from "../draw/DrawStage";
 import { letterOf } from "../draw/letter";
 import { DEFAULT_TIMING, type DrawTiming } from "../draw/timing";
-import { DrawSound } from "../sound/draw-sound";
+import {
+  DEFAULT_SOUND_OPTIONS,
+  DrawSound,
+  type DrumRollMode,
+  type RevealSound,
+  type SoundOptions,
+} from "../sound/draw-sound";
+import { SOUND_SOURCES, type SoundName } from "../sound/sources";
 import "../styles/global.scss";
 import styles from "./draw-lab.module.scss";
 
 const ALL_NUMBERS = Array.from({ length: 75 }, (_, i) =>
   BingoNumber.parse(i + 1),
 );
+
+const REVEAL_CHOICES: readonly (readonly [RevealSound, string])[] = [
+  ["jajean", "ジャジャーン"],
+  ["jean", "ジャン！"],
+  ["rollFinish", "ロールの閉めシンバル"],
+  ["trumpet", "ラッパのファンファーレ"],
+];
+
+const DRUM_ROLL_CHOICES: readonly (readonly [DrumRollMode, string])[] = [
+  ["off", "なし"],
+  ["tease", "じらしの間"],
+  ["spin", "回し始めから"],
+];
 
 /** つまみの定義（どの値を、どの範囲で変えるか） */
 const SLIDERS: readonly {
@@ -54,6 +74,15 @@ function DrawLab() {
   const [lastCue, setLastCue] = useState("");
   const [sound] = useState(() => new DrawSound());
   const [soundOn, setSoundOn] = useState(true);
+  const [soundOptions, setSoundOptions] = useState<SoundOptions>(
+    DEFAULT_SOUND_OPTIONS,
+  );
+  const [missing, setMissing] = useState<readonly SoundName[]>([]);
+
+  function updateSoundOptions(next: SoundOptions) {
+    setSoundOptions(next);
+    sound.setOptions(next);
+  }
 
   const remaining = ALL_NUMBERS.filter((n) => !history.includes(n));
 
@@ -62,9 +91,10 @@ function DrawLab() {
     // 試作なので画面の中で番号を引く（本番ではサーバーが決める）
     const n = remaining[Math.floor(Math.random() * remaining.length)];
     if (stage === null || n === undefined) return;
-    // ブラウザは操作の中でないと音を出させないので、ボタンを押した処理の中で準備する
-    sound.unlock();
     setPlaying(true);
+    // ブラウザは操作の中でないと音を出させないので、ボタンを押した処理の中で準備する。
+    // 最初の1回は音のファイルの読み込みを待つ
+    setMissing(await sound.unlock());
     try {
       await stage.play(n, {
         timing,
@@ -129,6 +159,63 @@ function DrawLab() {
         </label>
         <span className={styles.cue}>音のきっかけ: {lastCue}</span>
       </div>
+
+      <div className={styles.soundOptions}>
+        <label>
+          発表の音:{" "}
+          <select
+            value={soundOptions.reveal}
+            onChange={(e) => {
+              const found = REVEAL_CHOICES.find(([v]) => v === e.target.value);
+              if (found !== undefined)
+                updateSoundOptions({ ...soundOptions, reveal: found[0] });
+            }}
+          >
+            {REVEAL_CHOICES.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          ドラムロール:{" "}
+          <select
+            value={soundOptions.drumRoll}
+            onChange={(e) => {
+              const found = DRUM_ROLL_CHOICES.find(
+                ([v]) => v === e.target.value,
+              );
+              if (found !== undefined)
+                updateSoundOptions({ ...soundOptions, drumRoll: found[0] });
+            }}
+          >
+            {DRUM_ROLL_CHOICES.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={soundOptions.cheer}
+            onChange={(e) => {
+              updateSoundOptions({ ...soundOptions, cheer: e.target.checked });
+            }}
+          />
+          発表に歓声と拍手を重ねる
+        </label>
+      </div>
+
+      {missing.length > 0 && (
+        <p className={styles.warning}>
+          音のファイルが見つかりません（その音は鳴りません）。取得方法は
+          src/sound/sources.ts を参照:{" "}
+          {missing.map((name) => SOUND_SOURCES[name].file).join("、")}
+        </p>
+      )}
 
       <div className={styles.sliders}>
         {SLIDERS.map((s) => (

@@ -34,6 +34,21 @@
   color: #666;
 }
 
+.soundOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  font-size: 0.875rem;
+}
+
+.warning {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff3cd;
+  font-size: 0.875rem;
+}
+
 .sliders {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

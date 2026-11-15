@@ -237,7 +237,11 @@ export function DrawStage({ ref }: Props) {
         );
       }
 
-      // 4. じらし: 受け皿の中で小さく揺れる
+      // 4. じらし: 受け皿の中で小さく揺れる。ここから発表までの秒数は決まっているので、先に知らせる
+      onCue?.({
+        type: "revealSoon",
+        seconds: timing.teaseSeconds + timing.zoomSeconds,
+      });
       await animate(
         ball,
         { rotate: [angle, angle - 18, angle + 10, angle] },
@@ -250,7 +254,8 @@ export function DrawStage({ ref }: Props) {
         x: G.reveal.x * unit - rays.offsetWidth / 2,
         y: G.reveal.y * unit - rays.offsetHeight / 2,
       };
-      await animate(
+      // ばねの揺れが収まるのを待たず、決めた秒数で発表する（音と発表の時刻を正確にそろえるため）
+      const zoom = animate(
         ball,
         {
           x: reveal.x,
@@ -260,6 +265,7 @@ export function DrawStage({ ref }: Props) {
         },
         { type: "spring", duration: timing.zoomSeconds, bounce: 0.35 },
       );
+      await wait(timing.zoomSeconds);
 
       onReveal?.(n);
       onCue?.({ type: "reveal" });
@@ -301,6 +307,7 @@ export function DrawStage({ ref }: Props) {
         ),
         animate(rays, { opacity: 0 }, { duration: 0.35 }),
         spin,
+        zoom,
       ]);
       spinRays.stop();
     },
