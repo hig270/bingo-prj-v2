@@ -105,7 +105,7 @@
   - 背景（2026-11 時点）: TypeScript 7.0（Go 製）が 2026-07 に正式リリースされたが、外部ツール用の API がなく（7.1 で新 API の予定）、typescript-eslint は TypeScript 7 の上では動かない。公式案内の通り TypeScript 6 を並べて入れる（詳細は tsconfig の論点で決める）。
   - 理由: リンターに求めるのは速さより厳格さと確実さ。typescript-eslint の厳格な設定がそのまま使え、React 公式のフックのルールも使える。遅さはこの規模では問題にならない。
   - 検討して採らなかった案: Oxlint（型を使ったリントが 2026-07 に安定版。TypeScript 7 だけで済み非常に速いが、typescript-eslint の61ルール中59ルールの対応で、安定版になって日が浅い。実績がたまったら移行を検討する。移行用の道具もある）、Biome（独自の型推論で、ルールも判定の正確さも typescript-eslint とは別物）。フォーマッターの Oxfmt はベータ版のため見送り。
-- テストは **Vitest 4** を全層で使う。サーバー（Worker・Durable Object・保存領域）は Cloudflare 公式の **@cloudflare/vitest-plugin**（2026-08 に @cloudflare/vitest-pool-workers から改名。Vitest 4 が前提）で本番と同じ実行環境を手元で動かしてテストする。ゲームロジックは **fast-check** によるプロパティベーステストも使う。
+- テストは **Vitest 5**（2026-09 リリース。当初 4 としていたが、新規なので最新の系列にした）を全層で使う。サーバー（Worker・Durable Object・保存領域）は Cloudflare 公式の **@cloudflare/vitest-plugin**（2026-08 に @cloudflare/vitest-pool-workers から改名。Vitest 4.1 以降・5 に対応）で本番と同じ実行環境を手元で動かしてテストする。ゲームロジックは **fast-check** によるプロパティベーステストも使う。
   - 力の入れ方: ゲームロジックを最も手厚く（例のテスト＋性質のテスト。例: 確率は 0〜1、マスを開けても期待抽選回数は増えない、包除原理の結果がシミュレーションと一致、盤面の回転・反転で不変）。サーバーは認証・検証・順番が大事な処理・休止からの復帰を中心に。フロントはリデューサーを中心にし、画面の部品のテストは控えめ。
   - 画面の部品のテストの道具（Testing Library など）、E2E（Playwright が有力）、負荷試験（k6 か自作）の道具は必要になったときに決める。
   - 作りの方針: **乱数と現在時刻は外から渡せるようにする**（抽選・カード生成・順位決定ゲームの番号割り当て、Cookie の期限など）。テストで結果を固定できるようにするため。
@@ -133,7 +133,9 @@
   - **公開から3日（`minimumReleaseAge: 4320`）たっていないバージョンは入れない**（pnpm 12 の既定は1日）。乗っ取られた悪意あるバージョンは数時間〜数日で見つかって取り下げられることが多いため。緊急のセキュリティ修正は `minimumReleaseAgeExclude` に一時的に書いて入れる。
   - 依存パッケージのビルドスクリプトは、`allowBuilds` で許可したもの（workerd・esbuild など本当に必要なもの）以外は実行しない（pnpm 12 の既定）。
   - CI ではロックファイルに書かれたバージョン以外を入れない（`--frozen-lockfile`）。
+  - GitHub Actions の外部の部品は、タグではなくコミットの SHA で固定する（タグの書き換えによる乗っ取り対策）。部品の更新にも「公開から3日」の考え方を当てはめる。
 - **CI（GitHub Actions）** で、push のたびに型チェック・リント・テストを実行する。
+- 内部のパッケージ（game・protocol）はビルドせず、`package.json` の `exports` で TypeScript のソースを直接指す（Vite・Wrangler・Vitest がそのまま読める）。
 - パッケージの名前は `@bingo/` を頭に付ける: `apps/web`（`@bingo/web`）、`apps/server`（`@bingo/server`）、`packages/game`（`@bingo/game`。ゲームロジック）、`packages/protocol`（`@bingo/protocol`。WebSocket のメッセージと HTTP の API のスキーマ）。
 - フロントエンド・バックエンド・共通ロジックを分けたモノレポ構成にする（案: `apps/web`、`apps/server`、`packages/game`）。
 
