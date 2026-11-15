@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+.env*
+*.local
+*.log
+.DS_Store
+# CSS Modules のクラス名の型（happy-css-modules が毎回生成する）
+*.module.scss.d.ts
+*.module.scss.d.ts.map

@@ -1,0 +1,20 @@
+// デザインの値は CSS 変数で持つ（実行中に変えられるように）
+:root {
+  --color-bg: #fffaf0;
+  --color-text: #222;
+  --color-accent: #e8483b;
+  --space-md: 16px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, sans-serif;
+}

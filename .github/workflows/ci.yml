@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+
+# 最小限の権限で動かす（リポジトリの読み取りだけ）
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # 外部の部品はタグではなくコミットの SHA で固定する（タグの書き換えによる乗っ取り対策）
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # mise.toml に書いた Node.js と pnpm の版を入れる
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+
+      # ロックファイルに書かれたバージョン以外を入れない
+      - run: pnpm install --frozen-lockfile
+
+      # 型チェック・リント・整形の確認・テスト
+      - run: pnpm check

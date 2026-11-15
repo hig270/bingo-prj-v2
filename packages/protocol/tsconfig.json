@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // 通信の型も、ゲームロジックと同じく JavaScript の標準機能だけを使う（DOM も Cloudflare の API も型として存在しない）
+  "compilerOptions": {
+    "lib": ["es2024"],
+    "types": []
+  },
+  "include": ["src"]
+}

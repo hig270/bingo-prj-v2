@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // 画面はブラウザの API（DOM）を使う。Vite の型は import.meta の分だけ読む
+  // （vite/client は *.module.scss を「どんな名前でも通る」型で宣言するため読まない。
+  //   クラス名の型は happy-css-modules が生成する .module.scss.d.ts で付ける）
+  "compilerOptions": {
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": ["vite/types/importMeta.d.ts"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src"]
+}
