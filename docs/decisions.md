@@ -148,6 +148,8 @@
   - CI ではロックファイルに書かれたバージョン以外を入れない（`--frozen-lockfile`）。
   - GitHub Actions の外部の部品は、タグではなくコミットの SHA で固定する（タグの書き換えによる乗っ取り対策）。部品の更新にも「公開から3日」の考え方を当てはめる。
 - **CI（GitHub Actions）** で、push のたびに型チェック・リント・テストを実行する。
+  - main は GitHub の Ruleset（「main を守る」）で保護する（2026-11-15 に設定）: 直接の push を禁止して PR からだけ取り込む、CI（`check`）が合格しないとマージできない、強制 push と削除を禁止。承認の人数は 0（一人で開発しているため）。例外を許す人は置かない（管理者も同じ）。
+  - CI と Copilot のコードレビューは別物。Copilot のレビューは AI のコメントで、利用枠を使う。動かなくても CI の守りは変わらない。
 - サーバーの Cloudflare の API の型は `wrangler types` で生成した `apps/server/worker-configuration.d.ts` を使い、リポジトリに含める（型チェックの前に `wrangler types --check` で最新かを確かめる）。
 - 内部のパッケージ（game・protocol）はビルドせず、`package.json` の `exports` で TypeScript のソースを直接指す（Vite・Wrangler・Vitest がそのまま読める）。
 - パッケージの名前は `@bingo/` を頭に付ける: `apps/web`（`@bingo/web`）、`apps/server`（`@bingo/server`）、`packages/game`（`@bingo/game`。ゲームロジック）、`packages/protocol`（`@bingo/protocol`。WebSocket のメッセージと HTTP の API のスキーマ）。
