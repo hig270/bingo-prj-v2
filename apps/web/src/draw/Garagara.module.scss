@@ -1,0 +1,70 @@
+// ガラガラの色。木の胴に金色の金具（仮のデザイン。キャラクターや全体の色を決めたら合わせる）
+$wood: #b5651d;
+$wood-dark: #7a3e10;
+$wood-light: #d98c3f;
+$metal: #f2c94c;
+$metal-dark: #b8901f;
+
+.stand {
+  fill: $wood-dark;
+}
+
+.base {
+  fill: $wood-dark;
+}
+
+.chute {
+  stroke: $metal-dark;
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+
+.tray {
+  fill: none;
+  stroke: $metal-dark;
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+
+.drum {
+  // SVG の回転の中心を、この図形の中心にする
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.drumOuter {
+  fill: $wood;
+  stroke: $wood-dark;
+  stroke-width: 12;
+  stroke-linejoin: round;
+}
+
+.drumInner {
+  fill: $wood-light;
+  stroke: $wood-dark;
+  stroke-width: 4;
+}
+
+.drumLine {
+  stroke: $wood-dark;
+  stroke-width: 3;
+  opacity: 0.5;
+}
+
+.handleArm {
+  stroke: $metal-dark;
+  stroke-width: 14;
+  stroke-linecap: round;
+}
+
+.handleKnob {
+  fill: #c0392b;
+  stroke: #7b241c;
+  stroke-width: 4;
+}
+
+.hub {
+  fill: $metal;
+  stroke: $metal-dark;
+  stroke-width: 5;
+}
