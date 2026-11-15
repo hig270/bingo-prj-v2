@@ -19,8 +19,14 @@ const SLIDERS: readonly {
   max: number;
   step: number;
 }[] = [
-  { key: "spinSeconds", label: "回す長さ（秒）", min: 0.5, max: 8, step: 0.1 },
-  { key: "spinTurns", label: "回す回数", min: 1, max: 10, step: 1 },
+  {
+    key: "spinSeconds",
+    label: "玉が出るまで回す長さ（秒）",
+    min: 0.5,
+    max: 8,
+    step: 0.1,
+  },
+  { key: "spinTurns", label: "玉が出るまで回す回数", min: 1, max: 10, step: 1 },
   {
     key: "rollSeconds",
     label: "転がる長さ（秒）",
@@ -44,6 +50,7 @@ function DrawLab() {
   const [timing, setTiming] = useState<DrawTiming>(DEFAULT_TIMING);
   const [history, setHistory] = useState<readonly BingoNumber[]>([]);
   const [playing, setPlaying] = useState(false);
+  const [lastCue, setLastCue] = useState("");
 
   const remaining = ALL_NUMBERS.filter((n) => !history.includes(n));
 
@@ -54,8 +61,19 @@ function DrawLab() {
     if (stage === null || n === undefined) return;
     setPlaying(true);
     try {
-      await stage.play(n, timing, (revealed) => {
-        setHistory((h) => [...h, revealed]);
+      await stage.play(n, {
+        timing,
+        onReveal: (revealed) => {
+          setHistory((h) => [...h, revealed]);
+        },
+        // 音はまだ無いので、きっかけを画面に出して確かめる
+        onCue: (cue) => {
+          setLastCue(
+            cue.type === "land"
+              ? `land（強さ ${cue.strength.toFixed(2)}）`
+              : cue.type,
+          );
+        },
       });
     } finally {
       setPlaying(false);
@@ -93,6 +111,7 @@ function DrawLab() {
         >
           長さを初期値に戻す
         </button>
+        <span className={styles.cue}>音のきっかけ: {lastCue}</span>
       </div>
 
       <div className={styles.sliders}>

@@ -87,7 +87,7 @@
   }
 }
 
-// 玉の中央の白い丸と番号。小さいうちは番号を隠し、発表の瞬間に見せる
+// 玉の中央の白い丸
 .label {
   width: 62%;
   height: 62%;
@@ -102,18 +102,10 @@
   font-variant-numeric: tabular-nums;
 }
 
-.labelText {
-  opacity: 0;
-}
-
-.letter {
-  display: block;
-  font-size: u(7);
-}
-
+// 小さいうちは番号を隠し、発表の瞬間に見せる
 .number {
-  display: block;
-  font-size: u(17);
+  opacity: 0;
+  font-size: u(24);
   letter-spacing: -0.04em;
 }
 

@@ -28,6 +28,12 @@
   font-weight: bold;
 }
 
+.cue {
+  align-self: center;
+  font-size: 0.875rem;
+  color: #666;
+}
+
 .sliders {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

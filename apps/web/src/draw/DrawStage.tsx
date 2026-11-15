@@ -4,27 +4,44 @@ import { useAnimate } from "motion/react";
 import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
 import styles from "./DrawStage.module.scss";
-import { Garagara } from "./Garagara";
+import { Garagara, GaragaraDefs, TrayFront } from "./Garagara";
 import { GEOMETRY as G } from "./geometry";
 import { letterOf } from "./letter";
-import type { DrawTiming } from "./timing";
+import type { DrawCue, DrawTiming } from "./timing";
+
+export interface PlayOptions {
+  readonly timing: DrawTiming;
+  /** 番号が見えた瞬間に呼ばれる（プレイヤーのスマホへの公開をここに合わせる） */
+  readonly onReveal?: (n: BingoNumber) => void;
+  /** 音を鳴らすきっかけ（回し始め・飛び出し・受け皿に落ちる・発表） */
+  readonly onCue?: (cue: DrawCue) => void;
+}
 
 /** 外から演出を動かすための操作 */
 export interface DrawStageHandle {
-  /**
-   * 番号 n の抽選演出を最後まで再生する。
-   * onReveal は番号が見えた瞬間に呼ばれる（プレイヤーのスマホへの公開をここに合わせる）。
-   */
-  play(
-    n: BingoNumber,
-    timing: DrawTiming,
-    onReveal?: (n: BingoNumber) => void,
-  ): Promise<void>;
+  /** 番号 n の抽選演出を最後まで再生する */
+  play(n: BingoNumber, options: PlayOptions): Promise<void>;
 }
 
 interface Props {
   readonly ref: Ref<DrawStageHandle>;
 }
+
+// 胴の回り方: 最初の ACCEL の割合の時間で加速し、その後は一定の速さで回す（手で回すときの感じ）。
+// 玉が出た後は、その速さから惰性でだんだん遅くなって止まる
+const ACCEL = 0.35;
+/** 加速してから一定で回る進み方（0〜1 → 0〜1）。終わりの速さは平均の SPIN_END_SPEED 倍 */
+const SPIN_END_SPEED = 1 / (1 - ACCEL / 2);
+const spinEase = (p: number) =>
+  p < ACCEL
+    ? (SPIN_END_SPEED * p * p) / (2 * ACCEL)
+    : SPIN_END_SPEED * (p - ACCEL / 2);
+const easeOutQuad = (p: number) => 1 - (1 - p) * (1 - p);
+/** 玉が出た後に惰性で回る角度 */
+const COAST_DEGREES = 110;
+
+/** a を b で割った余り（常に 0 以上） */
+const mod = (a: number, b: number) => ((a % b) + b) % b;
 
 /**
  * ホスト画面の抽選演出（ガラガラ → 玉が飛び出す → 発表）。
@@ -39,12 +56,12 @@ export function DrawStage({ ref }: Props) {
   const labelTextRef = useRef<HTMLDivElement>(null);
   const raysRef = useRef<HTMLDivElement>(null);
   const flashRef = useRef<HTMLDivElement>(null);
-  // 胴の回転角度の合計（毎回の回転を前回の続きから始める）
+  // 胴の回転角度（毎回の回転を前回の続きから始める）。反時計回りなので減っていく
   const drumAngle = useRef(0);
   const [current, setCurrent] = useState<BingoNumber | null>(null);
 
   useImperativeHandle(ref, () => ({
-    async play(n, timing, onReveal) {
+    async play(n, { timing, onReveal, onCue }) {
       const stage = scope.current;
       const shaker = shakerRef.current;
       const body = bodyRef.current;
@@ -78,86 +95,133 @@ export function DrawStage({ ref }: Props) {
       });
 
       // 前回の状態を戻す
-      const outlet = at(G.outlet);
+      const from = at(G.ejectFrom);
       await Promise.all([
         animate(
           ball,
-          { ...outlet, scale: 0.3, opacity: 0, rotate: 0 },
+          { ...from, scale: 0.4, opacity: 0, rotate: 0 },
           { duration: 0 },
         ),
         animate(labelText, { opacity: 0 }, { duration: 0 }),
         animate(rays, { opacity: 0, scale: 0.3 }, { duration: 0 }),
       ]);
 
-      // 1. 溜め: ガラガラを回す。だんだん速くなり、最後は少しゆっくりに。台は小刻みに揺れる
-      const from = drumAngle.current;
-      const to = from + 360 * timing.spinTurns;
-      drumAngle.current = to;
+      // 1. 溜め: ガラガラを回す（反時計回り）。回っている途中で出口が受け皿側を向いた瞬間に玉が出る
+      const start = drumAngle.current;
+      const target = start - 360 * timing.spinTurns;
+      // 出口の向き = 口金の元の向き + 回転角度。これが ejectAngle になる回転角度のうち、target に一番近いもの
+      let ejectAt = target + mod(G.ejectAngle - G.spoutAngle - target, 360);
+      if (ejectAt - target > 180) ejectAt -= 360;
+      const spinDegrees = start - ejectAt;
+      // 惰性の区間（だんだん遅く）の始めの速さを、玉が出る瞬間の速さにそろえる
+      const ejectSpeed = (SPIN_END_SPEED * spinDegrees) / timing.spinSeconds; // 度/秒
+      const coastSeconds = (2 * COAST_DEGREES) / ejectSpeed;
+      const stopAt = ejectAt - COAST_DEGREES;
+      drumAngle.current = stopAt;
+      const total = timing.spinSeconds + coastSeconds;
+
+      onCue?.({ type: "spinStart" });
       const rattle = animate(
         body,
         { y: [0, -3, 1, -2, 0], x: [0, 1, -1, 0] },
         { duration: 0.18, repeat: Infinity },
       );
-      await animate(
+      const spin = animate(
         drum,
-        { rotate: [from, to] },
-        { duration: timing.spinSeconds, ease: [0.55, 0, 0.35, 1] },
+        { rotate: [start, ejectAt, stopAt] },
+        {
+          duration: total,
+          times: [0, timing.spinSeconds / total, 1],
+          ease: [spinEase, easeOutQuad],
+        },
       );
-      rattle.stop();
-      await animate(body, { x: 0, y: 0 }, { duration: 0.1 });
+      void spin.then(() => {
+        rattle.stop();
+        void animate(body, { x: 0, y: 0 }, { duration: 0.1 });
+      });
+      await wait(timing.spinSeconds);
 
-      // 2. 玉が飛び出し、坂を転がって受け皿に入り、跳ねる
-      const start = at(G.chuteStart);
-      const end = at(G.chuteEnd);
-      const rest = at(G.rest);
-      const pop = { x: outlet.x + 10 * unit, y: outlet.y - 40 * unit };
+      // 2. 玉が口金から右上へ放り出され、坂に落ちて転がる
+      onCue?.({ type: "eject" });
+      const peak = at(G.ejectPeak);
+      const chuteStart = at(G.chuteStart);
       await animate(
         ball,
         {
-          x: [outlet.x, pop.x, start.x],
-          y: [outlet.y, pop.y, start.y],
-          scale: [0.3, 1, 1],
+          x: [from.x, peak.x, chuteStart.x],
+          y: [from.y, peak.y, chuteStart.y],
+          scale: [0.4, 1, 1],
           opacity: [0, 1, 1],
+          rotate: [0, -60, -120],
         },
-        { duration: 0.45, ease: "easeOut" },
+        { duration: 0.42, times: [0, 0.45, 1], ease: ["easeOut", "easeIn"] },
       );
+      onCue?.({ type: "land", strength: 0.4 });
+
       // 坂を転がる距離から、玉の回転数を決める（滑らずに転がって見えるように）
+      const chuteEnd = at(G.chuteEnd);
       const distance = Math.hypot(
         G.chuteEnd.x - G.chuteStart.x,
         G.chuteEnd.y - G.chuteStart.y,
       );
-      const turns = distance / (2 * Math.PI * G.ballR);
+      const rolled = -120 + (360 * distance) / (2 * Math.PI * G.ballR);
       await animate(
         ball,
-        { x: end.x, y: end.y, rotate: 360 * turns },
+        { x: chuteEnd.x, y: chuteEnd.y, rotate: rolled },
         { duration: timing.rollSeconds, ease: [0.4, 0, 1, 1] },
       );
-      await animate(
-        ball,
-        {
-          x: [end.x, rest.x, rest.x + 6 * unit, rest.x],
-          y: [end.y, rest.y - 40 * unit, rest.y, rest.y],
-          rotate: 360 * turns + 120,
-        },
-        { duration: 0.6, ease: "easeOut" },
-      );
 
-      // 3. じらし: 受け皿の中で小さく揺れる
+      // 3. 坂の端から金属の受け皿に落ち、跳ねるたびに低くなって止まる
+      const rest = at(G.rest);
+      const bounces = [
+        { height: 0, dx: 0, strength: 1 },
+        { height: 42, dx: 8, strength: 0.55 },
+        { height: 16, dx: 4, strength: 0.3 },
+        { height: 5, dx: 1, strength: 0.15 },
+      ] as const;
+      // 最初は坂の端から皿の中央へ放物線で落ちる
       await animate(
         ball,
         {
-          rotate: [
-            360 * turns + 120,
-            360 * turns + 100,
-            360 * turns + 130,
-            360 * turns + 120,
-          ],
+          x: [chuteEnd.x, (chuteEnd.x + rest.x) / 2, rest.x],
+          y: [chuteEnd.y, chuteEnd.y - 14 * unit, rest.y],
+          rotate: rolled + 90,
         },
+        { duration: 0.32, times: [0, 0.35, 1], ease: ["easeOut", "easeIn"] },
+      );
+      let x = rest.x;
+      let angle = rolled + 90;
+      for (const b of bounces) {
+        onCue?.({ type: "land", strength: b.strength });
+        if (b.height === 0) continue;
+        const nextX = x + b.dx * unit;
+        angle += b.dx * 3;
+        const seconds = 0.08 + Math.sqrt(b.height) * 0.04;
+        await animate(
+          ball,
+          {
+            x: [x, (x + nextX) / 2, nextX],
+            y: [rest.y, rest.y - b.height * unit, rest.y],
+            rotate: angle,
+          },
+          {
+            duration: seconds,
+            times: [0, 0.5, 1],
+            ease: ["easeOut", "easeIn"],
+          },
+        );
+        x = nextX;
+      }
+
+      // 4. じらし: 受け皿の中で小さく揺れる
+      await animate(
+        ball,
+        { rotate: [angle, angle - 18, angle + 10, angle] },
         { duration: timing.teaseSeconds, ease: "easeInOut" },
       );
 
-      // 4. 発表: 玉が中央に寄って大きくなり、番号が見える。光・揺れ・紙吹雪を同時に
-      const target = at(G.reveal);
+      // 5. 発表: 玉が中央に寄って大きくなり、番号が見える。光・揺れ・紙吹雪を同時に
+      const reveal = at(G.reveal);
       const raysPos = {
         x: G.reveal.x * unit - rays.offsetWidth / 2,
         y: G.reveal.y * unit - rays.offsetHeight / 2,
@@ -165,15 +229,16 @@ export function DrawStage({ ref }: Props) {
       await animate(
         ball,
         {
-          x: target.x,
-          y: target.y,
+          x: reveal.x,
+          y: reveal.y,
           scale: G.reveal.scale,
-          rotate: 360 * Math.ceil(turns + 1),
+          rotate: 360 * Math.ceil(angle / 360 + 1),
         },
         { type: "spring", duration: timing.zoomSeconds, bounce: 0.35 },
       );
 
       onReveal?.(n);
+      onCue?.({ type: "reveal" });
       void animate(
         labelText,
         { opacity: [0, 1], scale: [1.6, 1] },
@@ -203,7 +268,7 @@ export function DrawStage({ ref }: Props) {
 
       await wait(timing.holdSeconds);
 
-      // 5. 片付け: 玉と光を消す
+      // 6. 片付け: 玉と光を消す
       await Promise.all([
         animate(
           ball,
@@ -211,19 +276,18 @@ export function DrawStage({ ref }: Props) {
           { duration: 0.35 },
         ),
         animate(rays, { opacity: 0 }, { duration: 0.35 }),
+        spin,
       ]);
       spinRays.stop();
     },
   }));
 
+  const viewBox = `0 0 ${String(G.width)} ${String(G.height)}`;
   return (
     <div ref={scope} className={styles.stage}>
       <div ref={shakerRef} className={styles.shaker}>
-        <svg
-          className={styles.svg}
-          viewBox={`0 0 ${String(G.width)} ${String(G.height)}`}
-          aria-hidden
-        >
+        <svg className={styles.svg} viewBox={viewBox} aria-hidden>
+          <GaragaraDefs />
           <Garagara drumRef={drumRef} bodyRef={bodyRef} />
         </svg>
         <div ref={raysRef} className={styles.rays} />
@@ -233,16 +297,15 @@ export function DrawStage({ ref }: Props) {
           data-letter={current === null ? undefined : letterOf(current)}
         >
           <div className={styles.label}>
-            <div ref={labelTextRef} className={styles.labelText}>
-              {current !== null && (
-                <>
-                  <span className={styles.letter}>{letterOf(current)}</span>
-                  <span className={styles.number}>{current}</span>
-                </>
-              )}
+            <div ref={labelTextRef} className={styles.number}>
+              {current}
             </div>
           </div>
         </div>
+        {/* 受け皿の手前の縁は玉より手前に描く（玉の下の方が縁に隠れて、皿に入って見える） */}
+        <svg className={styles.svg} viewBox={viewBox} aria-hidden>
+          <TrayFront />
+        </svg>
       </div>
       <div ref={flashRef} className={styles.flash} />
     </div>
