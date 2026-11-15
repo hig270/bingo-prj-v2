@@ -109,17 +109,30 @@
   - 力の入れ方: ゲームロジックを最も手厚く（例のテスト＋性質のテスト。例: 確率は 0〜1、マスを開けても期待抽選回数は増えない、包除原理の結果がシミュレーションと一致、盤面の回転・反転で不変）。サーバーは認証・検証・順番が大事な処理・休止からの復帰を中心に。フロントはリデューサーを中心にし、画面の部品のテストは控えめ。
   - 画面の部品のテストの道具（Testing Library など）、E2E（Playwright が有力）、負荷試験（k6 か自作）の道具は必要になったときに決める。
   - 作りの方針: **乱数と現在時刻は外から渡せるようにする**（抽選・カード生成・順位決定ゲームの番号割り当て、Cookie の期限など）。テストで結果を固定できるようにするため。
-- **React Compiler** を使う（コンパイル時に自動で不要な再描画を防ぐ。書き方は変わらない）。Vite の新しいバージョンで設定方法が変わっているので、骨組みを作るときに公式で確認する。
+- **React Compiler** を使う（コンパイル時に自動で不要な再描画を防ぐ。書き方は変わらない）。安定版の Babel 版（`babel-plugin-react-compiler`）を `@rolldown/plugin-babel` 経由で使う（Vite 8 と @vitejs/plugin-react 6 の公式の方法。Babel は React Compiler が 7 系の型に依存しているため 7 系）。
+  - 検討して採らなかった案: Rust 版（`oxc-transform-react`。2026-11 時点で実験的）。
+  - React 公式の ESLint プラグイン **eslint-plugin-react-hooks**（推奨設定 `recommended-latest`）を入れ、React Compiler が前提にしている決まり（フックの呼び方、描画中に状態を変えないなど）を破った箇所をリントで見つける。
+- 開発中は **Cloudflare の Vite プラグイン（@cloudflare/vite-plugin）** で、Vite の開発サーバーの中で Worker と Durable Object を動かす（2026-11-15 に確定）。コマンドは `pnpm dev` 1つ。
+  - 理由: 開発中も画面と API・WebSocket が同じ URL になり、Cookie と Origin の確認が本番と同じ条件で動く（開発中だけの分岐がコードに入らない）。どの URL を Worker に回すかのルールが `wrangler.jsonc` の1か所で済む。本番用のビルドも `vite build` 1つで画面と Worker をまとめて作れる。
+  - `apps/web` の Vite の設定から `apps/server/wrangler.jsonc` を指定して使う。ビルド結果は `apps/web/dist`（`client` が画面、`bingo` が Worker と設定）。
+  - 骨組みで、開発サーバー経由の画面・API・Durable Object の RPC・WebSocket（Hibernation API、2接続が同じルームにつながる）が動くことを確認した。
+  - 検討して採らなかった案: Vite と `wrangler dev` を別々に起動し、Vite の中継（プロキシ）で API と WebSocket を転送する（振り分けのルールを2か所で揃え続ける必要があり、Origin の確認に開発用の分岐が入るおそれがある）。
+- 画面の URL の振り分けは **TanStack Router のファイルベースのルーティング**（`src/routes` のファイル構成が URL になる）で、画面ごとのコード分割（`autoCodeSplitting`）を使う。生成される画面の一覧 `routeTree.gen.ts` は TanStack 公式の推奨に従いリポジトリに含める（CI で型チェックするのに必要）。
 - **Screen Wake Lock API** で、ゲーム中のプレイヤー画面を消さない（iOS Safari 16.4 以降で対応）。
 - 参加用の QR コードは旧実装と同じ **qrcode.react** で生成する。
 - 検討して採らなかった技術:
   - GraphQL: データの大部分はサーバーから WebSocket で押し出すもので、HTTP の API は数個、クライアントも自分のフロントだけなので、スキーマ・サーバー・クライアントの仕組みが加わる重さに見合わない。
   - tRPC（Hono の型付きクライアントと役割が重なる）、gRPC / Protocol Buffers・MessagePack（メッセージが小さく効果がない）、SSE（一方向で、双方向が必要）、WebTransport（iPhone の対応が不十分）。
   - PWA（Service Worker）: 不要。
-- スタイルは **SCSS ＋ CSS Modules**（`*.module.scss`。Vite に `sass-embedded` を入れて使う）。
+- スタイルは **SCSS ＋ CSS Modules**（`*.module.scss`）。SCSS のコンパイラは **`sass`**（当初 `sass-embedded` としていたが、骨組みで変更）。
+  - 変更の理由: クラス名の型を作る happy-css-modules が内部で `sass` を直接読み込むため。Vite も `sass` を使えるので、1つに揃えると依存が減り、型の生成と実際の出力が同じコンパイラになる。`sass-embedded` の利点（速さ）は、この規模では差が出ない。
   - 色・余白などのデザインの値は **CSS 変数**で持つ（実行中に変えられるように。将来ルームごとの色やキャラクターの差し替えなどに備える）。Sass の変数とミックスインは画面幅の区切りなど固定の値に、繰り返しは演出の `@keyframes` の生成などに使う。
   - 読み込みは `@use`（`@import` は非推奨・廃止予定）。
-  - CSS Modules のクラス名の型を自動生成し、打ち間違いをコンパイルエラーにする（道具は骨組みを作るときに決める）。
+  - CSS Modules のクラス名の型を自動生成し、打ち間違いをコンパイルエラーにする。道具は **happy-css-modules**（2026-11-15 に確定）。
+    - 使い方: `pnpm dev` で Vite と同時に監視モード（`hcm --watch`）を動かし、SCSS を保存するたびに型ファイル（`*.module.scss.d.ts`）を作り直す。型チェック（CI を含む）の前にも1回実行する。型ファイルはリポジトリに含めない。
+    - 理由: Vite から独立した道具なので、Vite のバージョンアップの影響を受けにくい。CI の手順が単純（型チェックの前に1回実行するだけ）。型ファイルから SCSS の該当行に飛べる。
+    - Vite の型（`vite/client`）は `*.module.scss` を「どんな名前でも通る」型で宣言しているため読み込まず、`import.meta` の型だけを使う。こうすると、型ファイルが無いときもコンパイルエラーになる。
+    - 検討して採らなかった案: vite-css-modules（Vite の内部の処理を置き換える作りで、バージョンアップのたびに壊れないか気にする必要がある。CI で型チェックの前にビルドするか、型ファイルをリポジトリに含める必要がある）、typescript-plugin-css-modules（エディタの中でだけ型が付き、`tsc` や CI では検出されない）。
   - 検討して採らなかった案: Tailwind CSS v4（旧実装で使用。書く速さと情報量は最大だが、クラス名がただの文字列で型の原則に沿いにくい）、Panda CSS（型は強いが情報量が少なく、依存とビルド時のコード生成が増える）、素の CSS Modules（SCSS のミックスインと繰り返しを使いたい）。
 - UI 部品のライブラリは**使わない**。ダイアログはブラウザ標準の `<dialog>` 要素、メニューなどは popover 属性で作る。iPhone での背面スクロールの停止などの不足分は少量のコードで補う。足りなければ、その部品だけ Radix などを入れる。
   - 理由: 必要な部品がダイアログとメニュー程度と少なく、標準機能でほぼ足りる。恩恵が小さいところで依存を増やさない。
@@ -131,14 +144,14 @@
 - Node.js は **26 系（2026-11 時点の Active LTS）** に固定する。`package.json` の `devEngines.runtime`（`onFail: "download"`）で指定し、pnpm に自動でダウンロードさせる（手元に入っている Node.js の版に関係なく、このプロジェクトでは 26 系が使われる。正確な版はロックファイルに記録される）。次の LTS（28 系）が出たら番号を書き換える。
 - 依存パッケージの安全対策:
   - **公開から3日（`minimumReleaseAge: 4320`）たっていないバージョンは入れない**（pnpm 12 の既定は1日）。乗っ取られた悪意あるバージョンは数時間〜数日で見つかって取り下げられることが多いため。緊急のセキュリティ修正は `minimumReleaseAgeExclude` に一時的に書いて入れる。
-  - 依存パッケージのビルドスクリプトは、`allowBuilds` で許可したもの以外は実行しない（pnpm 12 の既定）。現在許可しているのは esbuild（ビルド道具）と workerd（Cloudflare Workers の実行環境）だけ。
+  - 依存パッケージのビルドスクリプトは、`allowBuilds` で許可したもの以外は実行しない（pnpm 12 の既定）。現在許可しているのは esbuild（ビルド道具）と workerd（Cloudflare Workers の実行環境）だけ。`@parcel/watcher`（sass が使うファイル監視）は、配布済みのバイナリが無い環境向けの予備のビルドなので明示的に止めている。
   - CI ではロックファイルに書かれたバージョン以外を入れない（`--frozen-lockfile`）。
   - GitHub Actions の外部の部品は、タグではなくコミットの SHA で固定する（タグの書き換えによる乗っ取り対策）。部品の更新にも「公開から3日」の考え方を当てはめる。
 - **CI（GitHub Actions）** で、push のたびに型チェック・リント・テストを実行する。
 - サーバーの Cloudflare の API の型は `wrangler types` で生成した `apps/server/worker-configuration.d.ts` を使い、リポジトリに含める（型チェックの前に `wrangler types --check` で最新かを確かめる）。
 - 内部のパッケージ（game・protocol）はビルドせず、`package.json` の `exports` で TypeScript のソースを直接指す（Vite・Wrangler・Vitest がそのまま読める）。
 - パッケージの名前は `@bingo/` を頭に付ける: `apps/web`（`@bingo/web`）、`apps/server`（`@bingo/server`）、`packages/game`（`@bingo/game`。ゲームロジック）、`packages/protocol`（`@bingo/protocol`。WebSocket のメッセージと HTTP の API のスキーマ）。
-- フロントエンド・バックエンド・共通ロジックを分けたモノレポ構成にする（案: `apps/web`、`apps/server`、`packages/game`）。
+- フロントエンド・バックエンド・共通ロジックを分けたモノレポ構成にする（`apps/web`、`apps/server`、`packages/game`、`packages/protocol`）。
 
 ### 保存方法
 - Durable Objects の保存には**キーと値の API**（`storage.get` / `storage.put`）を使い、SQL は書かない。
@@ -276,8 +289,10 @@
 
 ## 未決定・要相談
 
-### 次に話す論点: 実装開始
-実装開始の準備（公式情報の確認・バックエンドの書き方・開発環境・画面まわり・演出と音）は 2026-11-13 にすべて完了。進め方: ブランチ `setup/monorepo` で、(1) 土台 → (2) 共通パッケージ（game・protocol）＋ CI → (3) サーバー → (4) フロント の4段階で作り、段階ごとにコミットしてユーザーに確認してもらう。次はモノレポの骨組み（pnpm ワークスペース、共通 tsconfig、ESLint・Prettier・Vitest の設定、SCSS と CSS Modules のクラス名の型生成、React Compiler、`apps/web`・`apps/server`・`packages/game`・共通パッケージ）を、中身のない状態で型チェック・リント・テストが通るところまで作る。骨組みができたら早めにホスト画面の抽選演出を試作する。特殊モードの再定義はその後。
+### 次に話す論点: ホスト画面の抽選演出の試作
+モノレポの骨組みは 2026-11-15 にブランチ `setup/monorepo` で完成（(1) 土台 → (2) 共通パッケージ（game・protocol）＋ CI → (3) サーバー → (4) フロント の4段階。中身のない状態で型チェック・リント・テストが通り、`pnpm dev` で画面・API・Durable Object・WebSocket が動く）。ブランチを main に取り込む方法（PR にするか）はユーザーと相談する。
+
+次は、早めにホスト画面の抽選演出を試作し、見ながらタイミングや派手さを調整する（「演出と音」の節）。特殊モードの再定義はその後。画面の URL（`/`・`/r/<ルームID>`・`/r/<ルームID>/host`）とルーム ID の形式は骨組みでの仮のもので、実装しながら決める。
 
 未採用の設計案（カードのシード生成、確率の計算場所、ランキング送信のまとめ方など）は実装しながら決める。データ保持・長期保存先は収益化と関わるので後回し（終了後に Durable Object のデータをいつ消すかだけは実装中に決める）。
 

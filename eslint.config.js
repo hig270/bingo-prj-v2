@@ -1,6 +1,7 @@
 // @ts-check
 import js from "@eslint/js";
 import { defineConfig, globalIgnores } from "eslint/config";
+import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
@@ -11,6 +12,7 @@ export default defineConfig(
     "**/.wrangler/",
     "**/*.gen.ts",
     "**/worker-configuration.d.ts",
+    "**/*.module.scss.d.ts",
   ]),
 
   js.configs.recommended,
@@ -42,6 +44,13 @@ export default defineConfig(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
     },
+  },
+
+  // React の決まり（フックの呼び方、描画中に値を書き換えないなど）。
+  // React Compiler はこの決まりを前提に最適化するので、破っている箇所をリントで見つける
+  {
+    files: ["apps/web/**/*.{ts,tsx}"],
+    extends: [reactHooks.configs.flat["recommended-latest"]],
   },
 
   // 設定ファイルなどの .js は型情報を使わない

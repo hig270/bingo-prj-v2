@@ -4,6 +4,15 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-10",
 
+  // 画面ファイル（apps/web のビルド結果）は Worker を通さずに配信する（料金・回数上限なし）。
+  // 置き場所（directory）は Cloudflare の Vite プラグインがビルド時に自動で埋める。
+  "assets": {
+    // 知らない URL（/r/abc123 など）には index.html を返し、画面の振り分けは React 側で行う
+    "not_found_handling": "single-page-application",
+    // Worker を動かすのは API と WebSocket だけ
+    "run_worker_first": ["/api/*", "/r/*/api/*", "/r/*/ws"],
+  },
+
   // ルームの Durable Object（SQLite 方式。保存はキーと値の API を使う）
   "durable_objects": {
     "bindings": [{ "name": "ROOM", "class_name": "RoomDO" }],

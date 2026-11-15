@@ -1,0 +1,9 @@
+// 画面のコード（tsconfig.app.json）と設定ファイル（tsconfig.node.json）は使える API が違うので分ける。
+// このファイルは、エディタと ESLint にその2つの場所を教えるだけ
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
