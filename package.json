@@ -1,0 +1,28 @@
+{
+  "name": "bingo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.20.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^26.0.0",
+      "onFail": "download"
+    }
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r --if-present run test",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "prettier": "^3.10.0",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.72.2"
+  }
+}

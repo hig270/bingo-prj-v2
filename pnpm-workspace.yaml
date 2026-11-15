@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+
+# 公開から3日（4320分）たっていないバージョンは入れない（サプライチェーン攻撃の対策）。
+# 緊急のセキュリティ修正だけは minimumReleaseAgeExclude に一時的に書いて入れる。
+minimumReleaseAge: 4320
+
+# 複数のパッケージで使うライブラリのバージョンを1か所で揃える。
+# 各パッケージの package.json では "catalog:" と書いて参照する。
+catalog:
+  typescript: ~6.0.3
