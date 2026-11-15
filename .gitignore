@@ -11,3 +11,6 @@ coverage/
 # CSS Modules のクラス名の型（happy-css-modules が毎回生成する）
 *.module.scss.d.ts
 *.module.scss.d.ts.map
+# 効果音ラボの音のファイル（規約で再配布が禁止されているので、公開リポジトリに入れない。
+# 取得元の一覧は apps/web/src/sound/sources.ts）
+apps/web/public/sounds/

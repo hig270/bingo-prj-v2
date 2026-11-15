@@ -1,0 +1,93 @@
+.page {
+  display: grid;
+  gap: var(--space-md);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-md);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.subtitle {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drawButton {
+  padding: 12px 32px;
+  font-size: 1.25rem;
+  font-weight: bold;
+}
+
+.cue {
+  align-self: center;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.warning {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff3cd;
+  font-size: 0.875rem;
+}
+
+.sliders {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px 24px;
+}
+
+.slider {
+  display: grid;
+  gap: 4px;
+  font-size: 0.875rem;
+}
+
+.history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.historyBall {
+  --ball-color: #888;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 0.875rem;
+  color: #222;
+  background: radial-gradient(circle, #fff 45%, var(--ball-color) 47%);
+
+  &[data-letter="B"] {
+    --ball-color: #2f80ed;
+  }
+  &[data-letter="I"] {
+    --ball-color: #eb5757;
+  }
+  &[data-letter="N"] {
+    --ball-color: #bdbdbd;
+  }
+  &[data-letter="G"] {
+    --ball-color: #27ae60;
+  }
+  &[data-letter="O"] {
+    --ball-color: #f2c94c;
+  }
+}

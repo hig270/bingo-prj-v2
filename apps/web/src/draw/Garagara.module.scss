@@ -1,0 +1,91 @@
+// ガラガラの色のうち、グラデーション以外のもの（グラデーションは Garagara.tsx の GaragaraDefs）
+
+.grain {
+  fill: none;
+  stroke: #5a2e0c;
+  stroke-width: 1.6;
+  opacity: 0.28;
+}
+
+.boardEdge {
+  fill: #4e2a0e;
+  opacity: 0.6;
+}
+
+.drum {
+  // SVG の回転の中心を、この図形の中心にする
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.rimBoard {
+  stroke: #4e2a0e;
+  stroke-width: 2;
+}
+
+.rimLine {
+  fill: none;
+  stroke: #3d1f08;
+  stroke-width: 5;
+  stroke-linejoin: round;
+}
+
+.faceEdge {
+  fill: none;
+  stroke: #e7a868;
+  stroke-width: 3;
+  opacity: 0.7;
+}
+
+.panel {
+  fill: #9a5a26;
+  stroke: #5a2e0c;
+  stroke-width: 4;
+}
+
+.fitting {
+  stroke: #6b4c0c;
+  stroke-width: 2;
+}
+
+.metalEdge {
+  stroke: #5d636a;
+  stroke-width: 2;
+}
+
+.handleArm {
+  stroke: #6b4c0c;
+  stroke-width: 16;
+  stroke-linecap: round;
+}
+
+.handleKnob {
+  fill: #a8322a;
+  stroke: #5e1712;
+  stroke-width: 4;
+}
+
+.knobShine {
+  fill: #fff;
+  opacity: 0.35;
+}
+
+.chuteBack {
+  fill: #8a9097;
+}
+
+.chuteShine {
+  stroke: #fff;
+  stroke-width: 2;
+  opacity: 0.8;
+}
+
+.boardTop {
+  fill: #e7a868;
+  opacity: 0.6;
+}
+
+.feltShadow {
+  fill: #000;
+  opacity: 0.3;
+}
