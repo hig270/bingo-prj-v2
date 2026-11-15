@@ -4,13 +4,7 @@ import { createRoot } from "react-dom/client";
 import { DrawStage, type DrawStageHandle } from "../draw/DrawStage";
 import { letterOf } from "../draw/letter";
 import { DEFAULT_TIMING, type DrawTiming } from "../draw/timing";
-import {
-  DEFAULT_SOUND_OPTIONS,
-  DrawSound,
-  type DrumRollMode,
-  type RevealSound,
-  type SoundOptions,
-} from "../sound/draw-sound";
+import { DrawSound } from "../sound/draw-sound";
 import { SOUND_SOURCES, type SoundName } from "../sound/sources";
 import "../styles/global.scss";
 import styles from "./draw-lab.module.scss";
@@ -18,19 +12,6 @@ import styles from "./draw-lab.module.scss";
 const ALL_NUMBERS = Array.from({ length: 75 }, (_, i) =>
   BingoNumber.parse(i + 1),
 );
-
-const REVEAL_CHOICES: readonly (readonly [RevealSound, string])[] = [
-  ["jajean", "ジャジャーン"],
-  ["jean", "ジャン！"],
-  ["rollFinish", "ロールの閉めシンバル"],
-  ["trumpet", "ラッパのファンファーレ"],
-];
-
-const DRUM_ROLL_CHOICES: readonly (readonly [DrumRollMode, string])[] = [
-  ["off", "なし"],
-  ["tease", "じらしの間"],
-  ["spin", "回し始めから"],
-];
 
 /** つまみの定義（どの値を、どの範囲で変えるか） */
 const SLIDERS: readonly {
@@ -74,15 +55,7 @@ function DrawLab() {
   const [lastCue, setLastCue] = useState("");
   const [sound] = useState(() => new DrawSound());
   const [soundOn, setSoundOn] = useState(true);
-  const [soundOptions, setSoundOptions] = useState<SoundOptions>(
-    DEFAULT_SOUND_OPTIONS,
-  );
   const [missing, setMissing] = useState<readonly SoundName[]>([]);
-
-  function updateSoundOptions(next: SoundOptions) {
-    setSoundOptions(next);
-    sound.setOptions(next);
-  }
 
   const remaining = ALL_NUMBERS.filter((n) => !history.includes(n));
 
@@ -158,55 +131,6 @@ function DrawLab() {
           音を出す
         </label>
         <span className={styles.cue}>音のきっかけ: {lastCue}</span>
-      </div>
-
-      <div className={styles.soundOptions}>
-        <label>
-          発表の音:{" "}
-          <select
-            value={soundOptions.reveal}
-            onChange={(e) => {
-              const found = REVEAL_CHOICES.find(([v]) => v === e.target.value);
-              if (found !== undefined)
-                updateSoundOptions({ ...soundOptions, reveal: found[0] });
-            }}
-          >
-            {REVEAL_CHOICES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          ドラムロール:{" "}
-          <select
-            value={soundOptions.drumRoll}
-            onChange={(e) => {
-              const found = DRUM_ROLL_CHOICES.find(
-                ([v]) => v === e.target.value,
-              );
-              if (found !== undefined)
-                updateSoundOptions({ ...soundOptions, drumRoll: found[0] });
-            }}
-          >
-            {DRUM_ROLL_CHOICES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={soundOptions.cheer}
-            onChange={(e) => {
-              updateSoundOptions({ ...soundOptions, cheer: e.target.checked });
-            }}
-          />
-          発表に歓声と拍手を重ねる
-        </label>
       </div>
 
       {missing.length > 0 && (

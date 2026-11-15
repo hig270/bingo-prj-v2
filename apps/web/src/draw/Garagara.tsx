@@ -240,6 +240,14 @@ export function Garagara({ drumRef, bodyRef }: Props) {
         fill="url(#gg-wood-dark)"
       />
       <rect
+        x={G.chutePostX - 28}
+        y={floorY - 4}
+        width={56}
+        height={14}
+        rx={4}
+        fill="url(#gg-wood)"
+      />
+      <rect
         x={tray.cx - 70}
         y={tray.rimY + 8}
         width={140}

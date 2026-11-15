@@ -40,7 +40,7 @@ export type DrawCue =
     }
   /** 玉が坂を転がり始めた（seconds 秒で転がり終わる） */
   | { readonly type: "roll"; readonly seconds: number }
-  /** あと seconds 秒で発表する（発表の前から鳴らし始める音のため） */
+  /** 玉が受け皿に止まり、じらしが始まった（あと seconds 秒で発表する。ドラムロールを鳴らし始める） */
   | { readonly type: "revealSoon"; readonly seconds: number }
   /** 番号を発表した */
   | { readonly type: "reveal" };

@@ -2,44 +2,6 @@ import { speedAt, type SpinPlan } from "../draw/spin";
 import type { DrawCue } from "../draw/timing";
 import { SOUND_SOURCES, type SoundName } from "./sources";
 
-/** 発表の音の候補 */
-export type RevealSound = "jajean" | "jean" | "rollFinish" | "trumpet";
-/** ドラムロールを鳴らす区間（鳴らさない／受け皿に止まってから発表まで／回し始めから発表まで） */
-export type DrumRollMode = "off" | "tease" | "spin";
-
-/** 試作画面で切り替えて比べる、音の組み合わせ */
-export interface SoundOptions {
-  readonly reveal: RevealSound;
-  readonly drumRoll: DrumRollMode;
-  /** 発表に歓声と拍手を重ねるか */
-  readonly cheer: boolean;
-}
-
-export const DEFAULT_SOUND_OPTIONS: SoundOptions = {
-  reveal: "jajean",
-  drumRoll: "off",
-  cheer: false,
-};
-
-/** ラッパのファンファーレは盛り上がりの頂点が頭から 0.8 秒あたりにあるので、そこを発表の瞬間に合わせる */
-const REVEAL_LEAD: Record<RevealSound, number> = {
-  jajean: 0,
-  jean: 0,
-  rollFinish: 0,
-  trumpet: 0.8,
-};
-
-/**
- * 発表の音の大きさ。ジャジャーンは迫力が強すぎたので抑える
- * （ほかの音は素材のままの大きさ）
- */
-const REVEAL_GAIN: Record<RevealSound, number> = {
-  jajean: 0.45,
-  jean: 1,
-  rollFinish: 1,
-  trumpet: 1,
-};
-
 /**
  * ガラガラの音を重くする設定。素材は軽い玉が「カラカラ」鳴る音なので、
  * 再生を遅くして低くし、高い音を削って低い音を足す。
@@ -81,7 +43,6 @@ export class DrawSound {
   private readonly buffers = new Map<SoundName, AudioBuffer>();
   private loading: Promise<readonly SoundName[]> | null = null;
   private muted = false;
-  private options: SoundOptions = DEFAULT_SOUND_OPTIONS;
   /** 鳴っているドラムロール（発表の瞬間に止める） */
   private drumRoll: { source: AudioBufferSourceNode; gain: GainNode } | null =
     null;
@@ -127,10 +88,6 @@ export class DrawSound {
     }
   }
 
-  setOptions(options: SoundOptions): void {
-    this.options = options;
-  }
-
   /** 演出のきっかけに合わせて音を鳴らす */
   play(cue: DrawCue): void {
     const ctx = this.ctx;
@@ -140,7 +97,6 @@ export class DrawSound {
       case "spinStart":
         this.trayLands = 0;
         this.rattle(now, cue.plan);
-        if (this.options.drumRoll === "spin") this.startDrumRoll(now);
         return;
       case "eject":
         this.ballHit(now, 0.7, 1);
@@ -163,19 +119,10 @@ export class DrawSound {
       case "roll":
         // 坂を転がる音は合う素材がないので鳴らさない
         return;
-      case "revealSoon": {
-        if (this.options.drumRoll === "tease") this.startDrumRoll(now);
-        // 盛り上がりの頂点が頭より後ろにある音は、発表の瞬間に頂点が来るよう早めに鳴らし始める
-        const lead = REVEAL_LEAD[this.options.reveal];
-        if (lead > 0) {
-          const startIn = cue.seconds - lead;
-          this.sample(this.options.reveal, now + Math.max(0, startIn), {
-            gain: REVEAL_GAIN[this.options.reveal],
-            offset: Math.max(0, -startIn),
-          });
-        }
+      case "revealSoon":
+        // 受け皿に止まってから発表までの「じらし」の間、ドラムロールを鳴らす
+        this.startDrumRoll(now);
         return;
-      }
       case "reveal":
         this.stopDrumRoll(now);
         this.reveal(now);
@@ -331,12 +278,8 @@ export class DrawSound {
     this.drumRoll = null;
   }
 
+  /** 発表の音（ドラムロールの締めのシンバル） */
   private reveal(t: number): void {
-    const { reveal, cheer } = this.options;
-    // 早めに鳴らし始める音（revealSoon で鳴らした）は、ここでは鳴らさない
-    if (REVEAL_LEAD[reveal] === 0) {
-      this.sample(reveal, t, { gain: REVEAL_GAIN[reveal] });
-    }
-    if (cheer) this.sample("cheer", t + 0.15, { gain: 0.6 });
+    this.sample("rollFinish", t, { gain: 1 });
   }
 }
