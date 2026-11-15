@@ -233,10 +233,10 @@ export function Garagara({ drumRef, bodyRef }: Props) {
         fill="url(#gg-wood)"
       />
       <rect
-        x={chute.x2 - 10}
-        y={chute.y2}
+        x={G.chutePostX - 10}
+        y={G.chuteYAt(G.chutePostX)}
         width={20}
-        height={floorY - chute.y2 + 10}
+        height={floorY - G.chuteYAt(G.chutePostX) + 10}
         fill="url(#gg-wood-dark)"
       />
       <rect

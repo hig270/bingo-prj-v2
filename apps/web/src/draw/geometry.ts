@@ -20,8 +20,11 @@ const spoutLength = 34;
 /** 玉が飛び出す瞬間の口金の向き（受け皿側を向いたとき） */
 const ejectAngle = 40;
 
-// 坂の下の端は、受け皿の箱の左の板より手前で終わらせる（玉は板を飛び越えて箱に落ちる）
-const chute = { x1: 800, y1: 652, x2: 1008, y2: 704 } as const;
+// 坂の下の端は、受け皿の箱の左の板の上を越えて、箱の中に少し張り出させる。
+// 板（上の端は y = 684 あたり）にめり込まないよう、坂の下の面が板の上を通る高さにする
+const chute = { x1: 800, y1: 626, x2: 1075, y2: 668 } as const;
+/** 坂の下の端を支える柱の位置（受け皿の箱より手前に立てる） */
+const chutePostX = 1000;
 const tray = { cx: 1160, rimY: 748 } as const;
 const floorY = 800;
 
@@ -54,6 +57,10 @@ export const GEOMETRY = {
   spoutLength,
   ejectAngle,
   chute,
+  chutePostX,
+  /** 坂の線の、x の位置での高さ */
+  chuteYAt: (x: number) =>
+    chute.y1 + ((chute.y2 - chute.y1) * (x - chute.x1)) / (chute.x2 - chute.x1),
   tray,
   ejectFrom,
   /** 飛び出した玉が描く弧の頂点（胴は反時計回りに回るので、右上へ放り出される） */

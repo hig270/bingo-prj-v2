@@ -29,6 +29,37 @@ const REVEAL_LEAD: Record<RevealSound, number> = {
   trumpet: 0.8,
 };
 
+/**
+ * 発表の音の大きさ。ジャジャーンは迫力が強すぎたので抑える
+ * （ほかの音は素材のままの大きさ）
+ */
+const REVEAL_GAIN: Record<RevealSound, number> = {
+  jajean: 0.45,
+  jean: 1,
+  rollFinish: 1,
+  trumpet: 1,
+};
+
+/**
+ * ガラガラの音を重くする設定。素材は軽い玉が「カラカラ」鳴る音なので、
+ * 再生を遅くして低くし、高い音を削って低い音を足す。
+ * さらに、高さとずらした位置を変えた2つ目の音を重ねて、玉が多く詰まった重い感じにする
+ */
+const RATTLE_TONE = {
+  /** 回る速さが 0 のときと最高のときの再生速度 */
+  rateSlow: 0.66,
+  rateFast: 0.78,
+  /** 2つ目の音の再生速度（1つ目に対する比）・ずらす秒数・大きさ */
+  layerRatio: 0.82,
+  layerOffset: 1.3,
+  layerGain: 0.7,
+  /** この周波数より高い音を削る（Hz） */
+  lowpass: 2600,
+  /** この周波数より低い音を持ち上げる（Hz, dB） */
+  lowShelf: 300,
+  lowShelfGain: 7,
+} as const;
+
 /** 「抽選機を回す」の音で、繰り返しに使う区間（立ち上がりと消え際を除いた中ほど） */
 const RATTLE_LOOP = { start: 0.5, end: 3.0 } as const;
 /** 「抽選機から玉が出る」の音の、最初の「コトッ」の長さ */
@@ -139,7 +170,7 @@ export class DrawSound {
         if (lead > 0) {
           const startIn = cue.seconds - lead;
           this.sample(this.options.reveal, now + Math.max(0, startIn), {
-            gain: 1,
+            gain: REVEAL_GAIN[this.options.reveal],
             offset: Math.max(0, -startIn),
           });
         }
@@ -178,7 +209,14 @@ export class DrawSound {
   private sample(
     name: SoundName,
     t: number,
-    o: { gain: number; rate?: number; offset?: number; duration?: number },
+    o: {
+      gain: number;
+      rate?: number;
+      offset?: number;
+      duration?: number;
+      /** 音量の調整の後につなぐ先（省略すると全体の音量につなぐ） */
+      output?: AudioNode;
+    },
   ): { source: AudioBufferSourceNode; gain: GainNode } | null {
     const ctx = this.ctx;
     const master = this.master;
@@ -189,7 +227,7 @@ export class DrawSound {
     source.playbackRate.value = o.rate ?? 1;
     const gain = ctx.createGain();
     gain.gain.value = o.gain;
-    source.connect(gain).connect(master);
+    source.connect(gain).connect(o.output ?? master);
     source.start(Math.max(t, ctx.currentTime), o.offset ?? 0, o.duration);
     return { source, gain };
   }
@@ -207,31 +245,69 @@ export class DrawSound {
 
   /**
    * ガラガラの音。回す時間が長いときは中ほどを繰り返す。
-   * 回る速さに合わせて音量と高さを少し変え、胴が止まるのに合わせて消す
+   * 回る速さに合わせて音量と高さを少し変え、胴が止まるのに合わせて消す。
+   * 重い音にするため、低くした音を2つ重ね、音色を整えてから鳴らす（RATTLE_TONE）
    */
   private rattle(t: number, plan: SpinPlan): void {
-    const played = this.sample("rattle", t, { gain: 0 });
-    if (played === null) return;
-    const { source, gain } = played;
+    const ctx = this.ctx;
+    const master = this.master;
+    if (ctx === null || master === null) return;
     const total = plan.ejectSeconds + plan.coastSeconds;
-    source.loop = true;
-    source.loopStart = RATTLE_LOOP.start;
-    source.loopEnd = RATTLE_LOOP.end;
+
+    // 高い音を削り、低い音を持ち上げる
+    const lowShelf = ctx.createBiquadFilter();
+    lowShelf.type = "lowshelf";
+    lowShelf.frequency.value = RATTLE_TONE.lowShelf;
+    lowShelf.gain.value = RATTLE_TONE.lowShelfGain;
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = "lowpass";
+    lowpass.frequency.value = RATTLE_TONE.lowpass;
+    // 回る速さに合わせて音量を変える（2つの音にまとめてかける）
+    const envelope = ctx.createGain();
+    envelope.gain.value = 0;
+    lowShelf.connect(lowpass).connect(envelope).connect(master);
+
     const points = 64;
     const speeds = Array.from({ length: points }, (_, i) =>
       speedAt(plan, (total * i) / (points - 1)),
     );
-    gain.gain.setValueCurveAtTime(
-      speeds.map((s, i) => (i === points - 1 ? 0 : 0.25 + 0.75 * s)),
+    envelope.gain.setValueCurveAtTime(
+      speeds.map((s, i) => (i === points - 1 ? 0 : 0.3 + 0.7 * s)),
       t,
       total,
     );
-    source.playbackRate.setValueCurveAtTime(
-      speeds.map((s) => 0.9 + 0.15 * s),
-      t,
-      total,
+    const rates = speeds.map(
+      (s) =>
+        RATTLE_TONE.rateSlow +
+        (RATTLE_TONE.rateFast - RATTLE_TONE.rateSlow) * s,
     );
-    source.stop(t + total + 0.05);
+
+    const layers = [
+      { ratio: 1, offset: 0, gain: 1 },
+      {
+        ratio: RATTLE_TONE.layerRatio,
+        offset: RATTLE_TONE.layerOffset,
+        gain: RATTLE_TONE.layerGain,
+      },
+    ];
+    for (const layer of layers) {
+      const played = this.sample("rattle", t, {
+        gain: layer.gain,
+        offset: RATTLE_LOOP.start + layer.offset,
+        output: lowShelf,
+      });
+      if (played === null) return;
+      const { source } = played;
+      source.loop = true;
+      source.loopStart = RATTLE_LOOP.start;
+      source.loopEnd = RATTLE_LOOP.end;
+      source.playbackRate.setValueCurveAtTime(
+        rates.map((r) => r * layer.ratio),
+        t,
+        total,
+      );
+      source.stop(t + total + 0.05);
+    }
   }
 
   private startDrumRoll(t: number): void {
@@ -258,7 +334,9 @@ export class DrawSound {
   private reveal(t: number): void {
     const { reveal, cheer } = this.options;
     // 早めに鳴らし始める音（revealSoon で鳴らした）は、ここでは鳴らさない
-    if (REVEAL_LEAD[reveal] === 0) this.sample(reveal, t, { gain: 1 });
+    if (REVEAL_LEAD[reveal] === 0) {
+      this.sample(reveal, t, { gain: REVEAL_GAIN[reveal] });
+    }
     if (cheer) this.sample("cheer", t + 0.15, { gain: 0.6 });
   }
 }
