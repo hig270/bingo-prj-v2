@@ -13,3 +13,8 @@ catalog:
   vitest: ^5.0.0
   fast-check: ^4.0.0
   zod: ^4.0.0
+
+# インストール時にビルドスクリプトの実行を許可するパッケージ（ここに書いたもの以外は実行しない）
+allowBuilds:
+  esbuild: true # ビルド道具（Wrangler・Vite が使う）
+  workerd: true # Cloudflare Workers の実行環境（手元での実行・テストに使う）

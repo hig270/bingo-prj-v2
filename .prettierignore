@@ -5,3 +5,4 @@ pnpm-lock.yaml
 **/*.gen.ts
 # ドキュメントは手で整えているので整形しない（表の桁揃えなどで差分が大きくなるため）
 *.md
+worker-configuration.d.ts

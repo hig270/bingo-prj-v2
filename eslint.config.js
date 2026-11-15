@@ -10,6 +10,7 @@ export default defineConfig(
     "**/coverage/",
     "**/.wrangler/",
     "**/*.gen.ts",
+    "**/worker-configuration.d.ts",
   ]),
 
   js.configs.recommended,

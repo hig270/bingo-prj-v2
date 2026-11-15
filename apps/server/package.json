@@ -1,0 +1,23 @@
+{
+  "name": "@bingo/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types",
+    "typecheck": "wrangler types --check && tsc --noEmit && tsc --noEmit -p test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bingo/game": "workspace:*",
+    "@bingo/protocol": "workspace:*",
+    "hono": "^4.13.18",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.8.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "^4.160.1"
+  }
+}

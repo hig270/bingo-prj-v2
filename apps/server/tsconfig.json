@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // サーバーは Cloudflare Workers の API だけを使う（型は wrangler types で生成した worker-configuration.d.ts）
+  "compilerOptions": {
+    "lib": ["es2024"],
+    "types": []
+  },
+  "include": ["src", "worker-configuration.d.ts", "vitest.config.ts"]
+}

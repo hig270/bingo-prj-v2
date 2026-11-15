@@ -131,10 +131,11 @@
 - Node.js は **26 系（2026-11 時点の Active LTS）** に固定する。`package.json` の `devEngines.runtime`（`onFail: "download"`）で指定し、pnpm に自動でダウンロードさせる（手元に入っている Node.js の版に関係なく、このプロジェクトでは 26 系が使われる。正確な版はロックファイルに記録される）。次の LTS（28 系）が出たら番号を書き換える。
 - 依存パッケージの安全対策:
   - **公開から3日（`minimumReleaseAge: 4320`）たっていないバージョンは入れない**（pnpm 12 の既定は1日）。乗っ取られた悪意あるバージョンは数時間〜数日で見つかって取り下げられることが多いため。緊急のセキュリティ修正は `minimumReleaseAgeExclude` に一時的に書いて入れる。
-  - 依存パッケージのビルドスクリプトは、`allowBuilds` で許可したもの（workerd・esbuild など本当に必要なもの）以外は実行しない（pnpm 12 の既定）。
+  - 依存パッケージのビルドスクリプトは、`allowBuilds` で許可したもの以外は実行しない（pnpm 12 の既定）。現在許可しているのは esbuild（ビルド道具）と workerd（Cloudflare Workers の実行環境）だけ。
   - CI ではロックファイルに書かれたバージョン以外を入れない（`--frozen-lockfile`）。
   - GitHub Actions の外部の部品は、タグではなくコミットの SHA で固定する（タグの書き換えによる乗っ取り対策）。部品の更新にも「公開から3日」の考え方を当てはめる。
 - **CI（GitHub Actions）** で、push のたびに型チェック・リント・テストを実行する。
+- サーバーの Cloudflare の API の型は `wrangler types` で生成した `apps/server/worker-configuration.d.ts` を使い、リポジトリに含める（型チェックの前に `wrangler types --check` で最新かを確かめる）。
 - 内部のパッケージ（game・protocol）はビルドせず、`package.json` の `exports` で TypeScript のソースを直接指す（Vite・Wrangler・Vitest がそのまま読める）。
 - パッケージの名前は `@bingo/` を頭に付ける: `apps/web`（`@bingo/web`）、`apps/server`（`@bingo/server`）、`packages/game`（`@bingo/game`。ゲームロジック）、`packages/protocol`（`@bingo/protocol`。WebSocket のメッセージと HTTP の API のスキーマ）。
 - フロントエンド・バックエンド・共通ロジックを分けたモノレポ構成にする（案: `apps/web`、`apps/server`、`packages/game`）。

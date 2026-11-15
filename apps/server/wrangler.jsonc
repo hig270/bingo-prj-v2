@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bingo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-10",
+
+  // ルームの Durable Object（SQLite 方式。保存はキーと値の API を使う）
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "RoomDO" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomDO"] }],
+}
