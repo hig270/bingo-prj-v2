@@ -1,12 +1,31 @@
 export { BingoNumber } from "./number";
 export {
-  CARD_SIZE,
-  CELL_COUNT,
   CellIndex,
   CellMask,
   EMPTY_MASK,
+  MAX_CELL_COUNT,
   countOpen,
   isOpen,
+  maskOf,
   openCell,
 } from "./cells";
-export { LINES_5X5, countCompletedLines } from "./lines";
+export {
+  CardLayout,
+  LAYOUTS,
+  NUMBERS_PER_COLUMN,
+  columnOf,
+  drawPool,
+  isCellOf,
+  type LayoutSpec,
+} from "./layout";
+export { countCompletedLines } from "./lines";
+export {
+  Card,
+  cellOf,
+  completedLines,
+  drawnMask,
+  generateCard,
+  initialMask,
+  numberAt,
+} from "./card";
+export { GameRule, WinCondition } from "./rules";

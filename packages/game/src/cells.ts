@@ -1,31 +1,33 @@
 import { z } from "zod";
 
-/** カードの一辺のマス数 */
-export const CARD_SIZE = 5;
-/** カードのマス数 */
-export const CELL_COUNT = CARD_SIZE * CARD_SIZE;
+/**
+ * 一番大きいカード（5×5）のマス数。
+ * マスの位置と開けたマスの集合は、どの大きさのカードでもこの範囲に収まる
+ */
+export const MAX_CELL_COUNT = 25;
 
 /**
- * マスの位置（0〜24）。行 × 5 ＋ 列 で数える。
- * 例: 左上は 0、右上は 4、中央（FREE）は 12、右下は 24
+ * マスの位置。行 × 一辺のマス数 ＋ 列 で数える。
+ * 例: 5×5 では左上が 0、右上が 4、中央（FREE）が 12、右下が 24。3×3 では 0〜8。
+ * カードの大きさに合った範囲かどうかは layout.ts の isCellOf で確かめる
  */
 export const CellIndex = z
   .number()
   .int()
   .min(0)
-  .max(CELL_COUNT - 1)
+  .max(MAX_CELL_COUNT - 1)
   .brand<"CellIndex">();
 export type CellIndex = z.infer<typeof CellIndex>;
 
 /**
- * 開けたマスの集合を25ビットの整数で表したもの。
+ * 開けたマスの集合を整数で表したもの（最大25ビット）。
  * マス i が開いていれば、下から i 番目のビットが 1 になる。
  */
 export const CellMask = z
   .number()
   .int()
   .min(0)
-  .max(2 ** CELL_COUNT - 1)
+  .max(2 ** MAX_CELL_COUNT - 1)
   .brand<"CellMask">();
 export type CellMask = z.infer<typeof CellMask>;
 
@@ -51,4 +53,11 @@ export function countOpen(mask: CellMask): number {
     count += 1;
   }
   return count;
+}
+
+/** マスの位置の一覧から、そのマスだけが開いた集合を作る */
+export function maskOf(cells: Iterable<number>): CellMask {
+  let mask = EMPTY_MASK;
+  for (const cell of cells) mask = openCell(mask, CellIndex.parse(cell));
+  return mask;
 }
