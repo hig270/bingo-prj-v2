@@ -7,7 +7,7 @@ import styles from "./DrawStage.module.scss";
 import { Garagara, GaragaraDefs, TrayFront } from "./Garagara";
 import { GEOMETRY as G } from "./geometry";
 import { letterOf } from "./letter";
-import type { DrawCue, DrawTiming } from "./timing";
+import type { DrawCue, DrawTiming, TrayStyle } from "./timing";
 
 export interface PlayOptions {
   readonly timing: DrawTiming;
@@ -25,7 +25,38 @@ export interface DrawStageHandle {
 
 interface Props {
   readonly ref: Ref<DrawStageHandle>;
+  /** 受け皿の種類 */
+  readonly tray: TrayStyle;
 }
+
+interface Bounce {
+  /** 跳ねる高さ（0 は落ちた瞬間だけで、跳ねない） */
+  readonly height: number;
+  /** 跳ねる間に横へ進む距離 */
+  readonly dx: number;
+  /** 落ちた音の強さ（0〜1） */
+  readonly strength: number;
+}
+
+/**
+ * 受け皿に落ちてからの跳ね方。金属は硬いので何度も跳ね、
+ * 毛せんは勢いを吸うので小さく1回跳ねて、少し転がって止まる
+ */
+const BOUNCES: Record<TrayStyle, readonly Bounce[]> = {
+  metal: [
+    { height: 0, dx: 0, strength: 1 },
+    { height: 42, dx: 8, strength: 0.55 },
+    { height: 16, dx: 4, strength: 0.3 },
+    { height: 5, dx: 1, strength: 0.15 },
+  ],
+  felt: [
+    { height: 0, dx: 0, strength: 0.6 },
+    { height: 7, dx: 6, strength: 0.15 },
+  ],
+};
+
+/** 跳ね終わってから転がる距離（毛せんの上は少し転がって止まる） */
+const SETTLE_ROLL: Record<TrayStyle, number> = { metal: 0, felt: 10 };
 
 // 胴の回り方: 最初の ACCEL の割合の時間で加速し、その後は一定の速さで回す（手で回すときの感じ）。
 // 玉が出た後は、その速さから惰性でだんだん遅くなって止まる
@@ -47,7 +78,7 @@ const mod = (a: number, b: number) => ((a % b) + b) % b;
  * ホスト画面の抽選演出（ガラガラ → 玉が飛び出す → 発表）。
  * どの番号を出すかは外（本番ではサーバー）が決め、この部品は見せ方だけを受け持つ。
  */
-export function DrawStage({ ref }: Props) {
+export function DrawStage({ ref, tray }: Props) {
   const [scope, animate] = useAnimate<HTMLDivElement>();
   const shakerRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<SVGGElement>(null);
@@ -171,14 +202,8 @@ export function DrawStage({ ref }: Props) {
         { duration: timing.rollSeconds, ease: [0.4, 0, 1, 1] },
       );
 
-      // 3. 坂の端から金属の受け皿に落ち、跳ねるたびに低くなって止まる
+      // 3. 坂の端から受け皿に落ち、跳ねて止まる（跳ね方は受け皿の種類で変わる）
       const rest = at(G.rest);
-      const bounces = [
-        { height: 0, dx: 0, strength: 1 },
-        { height: 42, dx: 8, strength: 0.55 },
-        { height: 16, dx: 4, strength: 0.3 },
-        { height: 5, dx: 1, strength: 0.15 },
-      ] as const;
       // 最初は坂の端から皿の中央へ放物線で落ちる
       await animate(
         ball,
@@ -191,7 +216,7 @@ export function DrawStage({ ref }: Props) {
       );
       let x = rest.x;
       let angle = rolled + 90;
-      for (const b of bounces) {
+      for (const b of BOUNCES[tray]) {
         onCue?.({ type: "land", strength: b.strength });
         if (b.height === 0) continue;
         const nextX = x + b.dx * unit;
@@ -211,6 +236,17 @@ export function DrawStage({ ref }: Props) {
           },
         );
         x = nextX;
+      }
+
+      const settle = SETTLE_ROLL[tray];
+      if (settle > 0) {
+        angle += (360 * settle) / (2 * Math.PI * G.ballR);
+        x += settle * unit;
+        await animate(
+          ball,
+          { x, rotate: angle },
+          { duration: 0.35, ease: "easeOut" },
+        );
       }
 
       // 4. じらし: 受け皿の中で小さく揺れる
@@ -288,7 +324,7 @@ export function DrawStage({ ref }: Props) {
       <div ref={shakerRef} className={styles.shaker}>
         <svg className={styles.svg} viewBox={viewBox} aria-hidden>
           <GaragaraDefs />
-          <Garagara drumRef={drumRef} bodyRef={bodyRef} />
+          <Garagara drumRef={drumRef} bodyRef={bodyRef} tray={tray} />
         </svg>
         <div ref={raysRef} className={styles.rays} />
         <div
@@ -304,7 +340,7 @@ export function DrawStage({ ref }: Props) {
         </div>
         {/* 受け皿の手前の縁は玉より手前に描く（玉の下の方が縁に隠れて、皿に入って見える） */}
         <svg className={styles.svg} viewBox={viewBox} aria-hidden>
-          <TrayFront />
+          <TrayFront tray={tray} />
         </svg>
       </div>
       <div ref={flashRef} className={styles.flash} />

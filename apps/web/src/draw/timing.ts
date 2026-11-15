@@ -34,3 +34,6 @@ export type DrawCue =
   | { readonly type: "land"; readonly strength: number }
   /** 番号を発表した */
   | { readonly type: "reveal" };
+
+/** 受け皿の種類。felt は赤い毛せん張りの木の箱（本物の木製の抽選器でよく使われる）、metal は金属の皿 */
+export type TrayStyle = "felt" | "metal";

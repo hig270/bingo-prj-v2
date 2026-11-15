@@ -28,6 +28,14 @@
   font-weight: bold;
 }
 
+.tray {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 2px 10px 6px;
+  font-size: 0.875rem;
+}
+
 .cue {
   align-self: center;
   font-size: 0.875rem;

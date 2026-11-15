@@ -1,4 +1,5 @@
 import type { Ref } from "react";
+import type { TrayStyle } from "./timing";
 import styles from "./Garagara.module.scss";
 import { GEOMETRY as G } from "./geometry";
 import { grainPaths } from "./wood";
@@ -91,6 +92,36 @@ export function GaragaraDefs() {
         <stop offset="0.7" stopColor="#5f656c" />
         <stop offset="1" stopColor="#3c4146" />
       </radialGradient>
+      {/* 赤い毛せん。細かい毛羽立ちをノイズで足す */}
+      <linearGradient id="gg-felt" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor="#a32222" />
+        <stop offset="1" stopColor="#d8392f" />
+      </linearGradient>
+      <filter id="gg-felt-texture" x="0" y="0" width="100%" height="100%">
+        <feTurbulence
+          type="fractalNoise"
+          baseFrequency="0.9"
+          numOctaves="2"
+          seed="3"
+          result="noise"
+        />
+        <feColorMatrix
+          in="noise"
+          type="matrix"
+          values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.35 0"
+          result="speckle"
+        />
+        <feComposite
+          in="speckle"
+          in2="SourceGraphic"
+          operator="in"
+          result="clipped"
+        />
+        <feMerge>
+          <feMergeNode in="SourceGraphic" />
+          <feMergeNode in="clipped" />
+        </feMerge>
+      </filter>
       {/* 金色の金具（角・中心・ハンドル） */}
       <linearGradient id="gg-gold" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stopColor="#fff1b0" />
@@ -116,13 +147,15 @@ interface Props {
   readonly drumRef: Ref<SVGGElement>;
   /** 回している間に揺らす部分（台を含む全体） */
   readonly bodyRef: Ref<SVGGElement>;
+  /** 受け皿の種類（赤い毛せん張りの木の箱か、金属の皿か） */
+  readonly tray: TrayStyle;
 }
 
 /**
  * ガラガラ（回転抽選器）と、坂・受け皿の奥側。中は見えない（本物と同じく外見だけ）。
  * 受け皿の手前の縁は、玉より手前に描くため TrayFront に分けている。
  */
-export function Garagara({ drumRef, bodyRef }: Props) {
+export function Garagara({ drumRef, bodyRef, tray: trayStyle }: Props) {
   const { drum, chute, tray, floorY } = G;
   const outer = octagonPoints(drum.cx, drum.cy, drum.r);
   const face = octagonPoints(drum.cx, drum.cy, drum.r * 0.86);
@@ -240,21 +273,7 @@ export function Garagara({ drumRef, bodyRef }: Props) {
       {/* 坂（銀色の樋）。奥の壁 → 底 → 手前の縁 の順に重ねる */}
       <ChuteShape />
 
-      {/* 受け皿の奥側（皿の内側） */}
-      <ellipse
-        cx={tray.cx}
-        cy={tray.rimY}
-        rx={tray.rx + 8}
-        ry={tray.ry + 6}
-        fill="url(#gg-silver-h)"
-      />
-      <ellipse
-        cx={tray.cx}
-        cy={tray.rimY + 2}
-        rx={tray.rx}
-        ry={tray.ry}
-        fill="url(#gg-bowl)"
-      />
+      {trayStyle === "felt" ? <FeltTrayBack /> : <MetalTrayBack />}
 
       {/* 胴（回る部分） */}
       <g ref={drumRef} className={styles.drum}>
@@ -317,13 +336,6 @@ export function Garagara({ drumRef, bodyRef }: Props) {
             rx={4}
             fill="url(#gg-silver)"
             className={styles.metalEdge}
-          />
-          <ellipse
-            cx={drum.cx + G.apothem + G.spoutLength - 3}
-            cy={drum.cy}
-            rx={4}
-            ry={15}
-            className={styles.hole}
           />
         </g>
         {/* ハンドル */}
@@ -400,8 +412,151 @@ function ChuteShape() {
   );
 }
 
-/** 受け皿の手前の縁（玉より手前に描く） */
-export function TrayFront() {
+/** 受け皿の手前の縁（玉より手前に描く。玉の下の方が隠れて、皿に入って見える） */
+export function TrayFront({ tray }: { readonly tray: TrayStyle }) {
+  return tray === "felt" ? <FeltTrayFront /> : <MetalTrayFront />;
+}
+
+// ---- 赤い毛せん張りの木の箱（本物の木製の抽選器でよく使われる受け皿） ----
+
+const FELT = {
+  halfBack: 108,
+  halfFront: 118,
+  backY: G.tray.rimY - 42,
+  frontY: G.tray.rimY + 12,
+} as const;
+
+function FeltTrayBack() {
+  const { cx } = G.tray;
+  const { halfBack, halfFront, backY, frontY } = FELT;
+  const felt: [number, number][] = [
+    [cx - halfBack, backY],
+    [cx + halfBack, backY],
+    [cx + halfFront, frontY],
+    [cx - halfFront, frontY],
+  ];
+  return (
+    <g>
+      {/* 奥の板 */}
+      <rect
+        x={cx - halfBack - 8}
+        y={backY - 22}
+        width={(halfBack + 8) * 2}
+        height={24}
+        rx={3}
+        fill="url(#gg-wood)"
+      />
+      <rect
+        x={cx - halfBack - 8}
+        y={backY - 22}
+        width={(halfBack + 8) * 2}
+        height={24}
+        rx={3}
+        fill="url(#gg-board-grain)"
+      />
+      <rect
+        x={cx - halfBack - 8}
+        y={backY - 22}
+        width={(halfBack + 8) * 2}
+        height={4}
+        rx={2}
+        className={styles.boardTop}
+      />
+      {/* 左右の板 */}
+      {[-1, 1].map((side) => (
+        <polygon
+          key={side}
+          points={toPoints([
+            [cx + side * halfBack, backY - 20],
+            [cx + side * (halfBack + 10), backY - 20],
+            [cx + side * (halfFront + 12), frontY],
+            [cx + side * halfFront, frontY],
+          ])}
+          fill="url(#gg-wood-dark)"
+        />
+      ))}
+      {/* 毛せん */}
+      <polygon
+        points={toPoints(felt)}
+        fill="url(#gg-felt)"
+        filter="url(#gg-felt-texture)"
+      />
+      {/* 奥の板が毛せんに落とす影 */}
+      <polygon
+        points={toPoints([
+          [cx - halfBack, backY],
+          [cx + halfBack, backY],
+          [cx + halfBack + 1, backY + 6],
+          [cx - halfBack - 1, backY + 6],
+        ])}
+        className={styles.feltShadow}
+      />
+    </g>
+  );
+}
+
+function FeltTrayFront() {
+  const { cx } = G.tray;
+  const { halfFront, frontY } = FELT;
+  const x = cx - halfFront - 12;
+  const width = (halfFront + 12) * 2;
+  const y = frontY - 6;
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={30} rx={3} fill="url(#gg-wood)" />
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={30}
+        rx={3}
+        fill="url(#gg-board-grain)"
+      />
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={4}
+        rx={2}
+        className={styles.boardTop}
+      />
+      <rect
+        x={x}
+        y={y + 24}
+        width={width}
+        height={6}
+        rx={2}
+        className={styles.boardEdge}
+      />
+    </g>
+  );
+}
+
+// ---- 金属の皿 ----
+
+function MetalTrayBack() {
+  const { tray } = G;
+  return (
+    <g>
+      <ellipse
+        cx={tray.cx}
+        cy={tray.rimY}
+        rx={tray.rx + 8}
+        ry={tray.ry + 6}
+        fill="url(#gg-silver-h)"
+      />
+      <ellipse
+        cx={tray.cx}
+        cy={tray.rimY + 2}
+        rx={tray.rx}
+        ry={tray.ry}
+        fill="url(#gg-bowl)"
+      />
+    </g>
+  );
+}
+
+function MetalTrayFront() {
   const { tray } = G;
   const left = tray.cx - tray.rx - 8;
   const right = tray.cx + tray.rx + 8;

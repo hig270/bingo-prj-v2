@@ -53,10 +53,6 @@
   stroke-width: 2;
 }
 
-.hole {
-  fill: #111;
-}
-
 .handleArm {
   stroke: #6b4c0c;
   stroke-width: 16;
@@ -82,4 +78,14 @@
   stroke: #fff;
   stroke-width: 2;
   opacity: 0.8;
+}
+
+.boardTop {
+  fill: #e7a868;
+  opacity: 0.6;
+}
+
+.feltShadow {
+  fill: #000;
+  opacity: 0.3;
 }

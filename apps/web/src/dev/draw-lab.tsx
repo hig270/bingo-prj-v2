@@ -3,7 +3,11 @@ import { StrictMode, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DrawStage, type DrawStageHandle } from "../draw/DrawStage";
 import { letterOf } from "../draw/letter";
-import { DEFAULT_TIMING, type DrawTiming } from "../draw/timing";
+import {
+  DEFAULT_TIMING,
+  type DrawTiming,
+  type TrayStyle,
+} from "../draw/timing";
 import "../styles/global.scss";
 import styles from "./draw-lab.module.scss";
 
@@ -51,6 +55,7 @@ function DrawLab() {
   const [history, setHistory] = useState<readonly BingoNumber[]>([]);
   const [playing, setPlaying] = useState(false);
   const [lastCue, setLastCue] = useState("");
+  const [tray, setTray] = useState<TrayStyle>("felt");
 
   const remaining = ALL_NUMBERS.filter((n) => !history.includes(n));
 
@@ -83,7 +88,7 @@ function DrawLab() {
   return (
     <main className={styles.page}>
       <h1 className={styles.title}>抽選演出の試作</h1>
-      <DrawStage ref={stageRef} />
+      <DrawStage ref={stageRef} tray={tray} />
 
       <div className={styles.controls}>
         <button
@@ -111,6 +116,28 @@ function DrawLab() {
         >
           長さを初期値に戻す
         </button>
+        <fieldset className={styles.tray} disabled={playing}>
+          <legend>受け皿</legend>
+          {(
+            [
+              ["felt", "赤い毛せん（木の箱）"],
+              ["metal", "金属の皿"],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="tray"
+                value={value}
+                checked={tray === value}
+                onChange={() => {
+                  setTray(value);
+                }}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
         <span className={styles.cue}>音のきっかけ: {lastCue}</span>
       </div>
 
