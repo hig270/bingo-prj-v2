@@ -9,23 +9,37 @@ import { SOUND_SOURCES, type SoundName } from "./sources";
  */
 const RATTLE_TONE = {
   /** 回る速さが 0 のときと最高のときの再生速度 */
-  rateSlow: 0.66,
-  rateFast: 0.78,
+  rateSlow: 0.6,
+  rateFast: 0.71,
   /** 2つ目の音の再生速度（1つ目に対する比）・ずらす秒数・大きさ */
   layerRatio: 0.82,
   layerOffset: 1.3,
-  layerGain: 0.7,
+  layerGain: 0.8,
   /** この周波数より高い音を削る（Hz） */
-  lowpass: 2600,
+  lowpass: 2100,
   /** この周波数より低い音を持ち上げる（Hz, dB） */
   lowShelf: 300,
-  lowShelfGain: 7,
+  lowShelfGain: 9,
 } as const;
 
 /** 「抽選機を回す」の音で、繰り返しに使う区間（立ち上がりと消え際を除いた中ほど） */
 const RATTLE_LOOP = { start: 0.5, end: 3.0 } as const;
 /** 「抽選機から玉が出る」の音の、最初の「コトッ」の長さ */
 const BALL_HIT_SECONDS = 0.12;
+
+/**
+ * 玉の音を重くする設定。素材の玉は軽く聞こえるので、再生を遅くして低くし、
+ * 高い音を削って低い音を足す（飛び出す・坂に当たる・受け皿に落ちる、のすべてにかける）
+ */
+const BALL_TONE = {
+  /** 再生速度にかける倍率 */
+  rate: 0.8,
+  /** この周波数より高い音を削る（Hz） */
+  lowpass: 2400,
+  /** この周波数より低い音を持ち上げる（Hz, dB） */
+  lowShelf: 250,
+  lowShelfGain: 8,
+} as const;
 /** ドラムロールの頭の一打を飛ばして、連打の部分から鳴らす */
 const DRUM_ROLL_OFFSET = 0.4;
 const DRUM_ROLL_LOOP = { start: 1.0, end: 4.2 } as const;
@@ -40,6 +54,8 @@ const DRUM_ROLL_LOOP = { start: 1.0, end: 4.2 } as const;
 export class DrawSound {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  /** 玉の音の通り道（音色を整えてから全体の音量につなぐ） */
+  private ballOut: AudioNode | null = null;
   private readonly buffers = new Map<SoundName, AudioBuffer>();
   private loading: Promise<readonly SoundName[]> | null = null;
   private muted = false;
@@ -71,6 +87,15 @@ export class DrawSound {
       master.connect(compressor).connect(ctx.destination);
       this.ctx = ctx;
       this.master = master;
+      const lowShelf = ctx.createBiquadFilter();
+      lowShelf.type = "lowshelf";
+      lowShelf.frequency.value = BALL_TONE.lowShelf;
+      lowShelf.gain.value = BALL_TONE.lowShelfGain;
+      const lowpass = ctx.createBiquadFilter();
+      lowpass.type = "lowpass";
+      lowpass.frequency.value = BALL_TONE.lowpass;
+      lowShelf.connect(lowpass).connect(master);
+      this.ballOut = lowShelf;
       this.loading = this.load(ctx);
     }
     void this.ctx.resume();
@@ -111,8 +136,9 @@ export class DrawSound {
         if (this.trayLands === 1) {
           // 受け皿に落ちて跳ねる音は「玉が出る」の音を丸ごと使う（後ろに小さな跳ね返りが入っている）
           this.sample("ball", now, {
-            gain: 0.9,
-            rate: 0.97 + this.random() * 0.06,
+            gain: 1.1,
+            rate: BALL_TONE.rate * (0.97 + this.random() * 0.06),
+            ...(this.ballOut === null ? {} : { output: this.ballOut }),
           });
         }
         return;
@@ -183,11 +209,17 @@ export class DrawSound {
   private ballHit(t: number, gain: number, rate: number): void {
     const played = this.sample("ball", t, {
       gain,
-      rate: rate * (0.96 + this.random() * 0.08),
+      rate: BALL_TONE.rate * rate * (0.96 + this.random() * 0.08),
       duration: BALL_HIT_SECONDS,
+      ...(this.ballOut === null ? {} : { output: this.ballOut }),
     });
     // 切った終わりで「プツッ」と鳴らないよう、最後を素早く消す
-    played?.gain.gain.setTargetAtTime(0, t + BALL_HIT_SECONDS * 0.6, 0.015);
+    // （再生を遅くしているので、そのぶん実際の時間は長くなる）
+    played?.gain.gain.setTargetAtTime(
+      0,
+      t + (BALL_HIT_SECONDS * 0.6) / BALL_TONE.rate,
+      0.015,
+    );
   }
 
   /**
