@@ -1,6 +1,6 @@
 import { speedAt, type SpinPlan } from "../draw/spin";
 import type { DrawCue } from "../draw/timing";
-import { SOUND_SOURCES, type SoundName } from "./sources";
+import { SOUND_NAMES, SOUND_SOURCES, type SoundName } from "./sources";
 
 /**
  * ガラガラの音を重くする設定。素材は軽い玉が「カラカラ」鳴る音なので、
@@ -159,9 +159,8 @@ export class DrawSound {
   // ---- ここから下は内部の処理 ----
 
   private async load(ctx: AudioContext): Promise<readonly SoundName[]> {
-    const names = Object.keys(SOUND_SOURCES) as SoundName[];
     const results = await Promise.all(
-      names.map(async (name) => {
+      SOUND_NAMES.map(async (name) => {
         try {
           const res = await fetch(`/sounds/${SOUND_SOURCES[name].file}`);
           if (!res.ok) return name;
