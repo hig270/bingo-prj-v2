@@ -53,9 +53,17 @@ function countCodePoints(text: string): number {
   return count;
 }
 
-/** 見えない文字を含むか */
+/**
+ * 標準の絵文字にある、タグ文字（見えない文字）を使う旗。イングランド・スコットランド・ウェールズの3つ。
+ * 🏴（U+1F3F4）＋ 地域を表すタグ文字（gbeng・gbsct・gbwls）＋ 終わりのタグ（U+E007F）でできている。
+ * この並びに限ってタグ文字を許す（任意のタグ文字を許すと、見た目は同じ 🏴 で中身の違う名前を作れるため）
+ */
+const FLAG_TAG_SEQUENCE =
+  /\u{1F3F4}\u{E0067}\u{E0062}(?:\u{E0065}\u{E006E}\u{E0067}|\u{E0073}\u{E0063}\u{E0074}|\u{E0077}\u{E006C}\u{E0073})\u{E007F}/gu;
+
+/** 見えない文字を含むか（標準の絵文字の旗に含まれるタグ文字は数えない） */
 export function hasInvisible(text: string): boolean {
-  return INVISIBLE.test(text);
+  return INVISIBLE.test(text.replace(FLAG_TAG_SEQUENCE, "\u{1F3F4}"));
 }
 
 /**

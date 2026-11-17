@@ -36,6 +36,29 @@ describe("PlayerName", () => {
     expect(PlayerName.safeParse("たろう\u200b").success).toBe(false);
   });
 
+  it("タグ文字を使う標準の旗（イングランド・スコットランド・ウェールズ）は使える", () => {
+    const tag = (code: string) =>
+      Array.from(code, (c) =>
+        String.fromCodePoint(0xe0000 + (c.codePointAt(0) ?? 0)),
+      ).join("");
+    const flag = (code: string) => `\u{1F3F4}${tag(code)}\u{E007F}`;
+    for (const code of ["gbeng", "gbsct", "gbwls"]) {
+      expect(PlayerName.safeParse(`たろう${flag(code)}`).success).toBe(true);
+    }
+    // 黒い旗だけ（タグ文字なし）も使える
+    expect(PlayerName.safeParse("\u{1F3F4}").success).toBe(true);
+    // 標準の一覧に無いタグの並び・旗の外のタグ文字は、見えない文字として断る
+    expect(PlayerName.safeParse(`たろう${flag("gbxyz")}`).success).toBe(false);
+    expect(PlayerName.safeParse(`たろう${tag("gbeng")}`).success).toBe(false);
+    expect(PlayerName.safeParse(`\u{1F3F4}${tag("gbeng")}`).success).toBe(
+      false,
+    );
+  });
+
+  it("ゼロ幅非接合子（U+200C）は使えない（見た目が同じ名前を別人として通せるため）", () => {
+    expect(PlayerName.safeParse("たろ\u200cう").success).toBe(false);
+  });
+
   it("1文字に結合文字を重ねすぎた名前は受け付けない（表示が上下にはみ出すため）", () => {
     // a に結合文字（U+0301）を 5000 個。見た目は1文字と数えられる
     expect(PlayerName.safeParse(`a${"\u0301".repeat(5000)}`).success).toBe(
