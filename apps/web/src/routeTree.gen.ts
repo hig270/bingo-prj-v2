@@ -10,6 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as NewIndexRouteImport } from './routes/new/index'
+import { Route as NewSettingsRouteImport } from './routes/new/settings'
+import { Route as RRoomIdRouteRouteImport } from './routes/r/$roomId/route'
 import { Route as RRoomIdIndexRouteImport } from './routes/r/$roomId/index'
 import { Route as RRoomIdHostRouteImport } from './routes/r/$roomId/host'
 
@@ -18,45 +21,82 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RRoomIdIndexRoute = RRoomIdIndexRouteImport.update({
-  id: '/r/$roomId/',
-  path: '/r/$roomId/',
+const NewIndexRoute = NewIndexRouteImport.update({
+  id: '/new/',
+  path: '/new/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RRoomIdHostRoute = RRoomIdHostRouteImport.update({
-  id: '/r/$roomId/host',
-  path: '/r/$roomId/host',
+const NewSettingsRoute = NewSettingsRouteImport.update({
+  id: '/new/settings',
+  path: '/new/settings',
   getParentRoute: () => rootRouteImport,
+} as any)
+const RRoomIdRouteRoute = RRoomIdRouteRouteImport.update({
+  id: '/r/$roomId',
+  path: '/r/$roomId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RRoomIdIndexRoute = RRoomIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RRoomIdRouteRoute,
+} as any)
+const RRoomIdHostRoute = RRoomIdHostRouteImport.update({
+  id: '/host',
+  path: '/host',
+  getParentRoute: () => RRoomIdRouteRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/r/$roomId': typeof RRoomIdRouteRouteWithChildren
+  '/new/settings': typeof NewSettingsRoute
+  '/new/': typeof NewIndexRoute
   '/r/$roomId/host': typeof RRoomIdHostRoute
   '/r/$roomId/': typeof RRoomIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/new/settings': typeof NewSettingsRoute
+  '/new': typeof NewIndexRoute
   '/r/$roomId/host': typeof RRoomIdHostRoute
   '/r/$roomId': typeof RRoomIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/r/$roomId': typeof RRoomIdRouteRouteWithChildren
+  '/new/settings': typeof NewSettingsRoute
+  '/new/': typeof NewIndexRoute
   '/r/$roomId/host': typeof RRoomIdHostRoute
   '/r/$roomId/': typeof RRoomIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/r/$roomId/host' | '/r/$roomId/'
+  fullPaths:
+    | '/'
+    | '/r/$roomId'
+    | '/new/settings'
+    | '/new/'
+    | '/r/$roomId/host'
+    | '/r/$roomId/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/r/$roomId/host' | '/r/$roomId'
-  id: '__root__' | '/' | '/r/$roomId/host' | '/r/$roomId/'
+  to: '/' | '/new/settings' | '/new' | '/r/$roomId/host' | '/r/$roomId'
+  id:
+    | '__root__'
+    | '/'
+    | '/r/$roomId'
+    | '/new/settings'
+    | '/new/'
+    | '/r/$roomId/host'
+    | '/r/$roomId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  RRoomIdHostRoute: typeof RRoomIdHostRoute
-  RRoomIdIndexRoute: typeof RRoomIdIndexRoute
+  RRoomIdRouteRoute: typeof RRoomIdRouteRouteWithChildren
+  NewSettingsRoute: typeof NewSettingsRoute
+  NewIndexRoute: typeof NewIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,27 +108,63 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/new/': {
+      id: '/new/'
+      path: '/new'
+      fullPath: '/new/'
+      preLoaderRoute: typeof NewIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/new/settings': {
+      id: '/new/settings'
+      path: '/new/settings'
+      fullPath: '/new/settings'
+      preLoaderRoute: typeof NewSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/r/$roomId': {
+      id: '/r/$roomId'
+      path: '/r/$roomId'
+      fullPath: '/r/$roomId'
+      preLoaderRoute: typeof RRoomIdRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/r/$roomId/': {
       id: '/r/$roomId/'
-      path: '/r/$roomId'
+      path: '/'
       fullPath: '/r/$roomId/'
       preLoaderRoute: typeof RRoomIdIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof RRoomIdRouteRoute
     }
     '/r/$roomId/host': {
       id: '/r/$roomId/host'
-      path: '/r/$roomId/host'
+      path: '/host'
       fullPath: '/r/$roomId/host'
       preLoaderRoute: typeof RRoomIdHostRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof RRoomIdRouteRoute
     }
   }
 }
 
-const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+interface RRoomIdRouteRouteChildren {
+  RRoomIdHostRoute: typeof RRoomIdHostRoute
+  RRoomIdIndexRoute: typeof RRoomIdIndexRoute
+}
+
+const RRoomIdRouteRouteChildren: RRoomIdRouteRouteChildren = {
   RRoomIdHostRoute: RRoomIdHostRoute,
   RRoomIdIndexRoute: RRoomIdIndexRoute,
+}
+
+const RRoomIdRouteRouteWithChildren = RRoomIdRouteRoute._addFileChildren(
+  RRoomIdRouteRouteChildren,
+)
+
+const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
+  RRoomIdRouteRoute: RRoomIdRouteRouteWithChildren,
+  NewSettingsRoute: NewSettingsRoute,
+  NewIndexRoute: NewIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

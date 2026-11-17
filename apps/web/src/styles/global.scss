@@ -1,9 +1,29 @@
-// デザインの値は CSS 変数で持つ（実行中に変えられるように）
+// デザインの値は CSS 変数で持つ（実行中に変えられるように）。
+// 今は仮の落ち着いた見た目。画面がそろってから全体のデザインを決めて、ここを差し替える
+// （decisions.md「画面の見た目は、まず素朴に作り、画面がそろってから全体を決める」）
 :root {
-  --color-bg: #fffaf0;
+  --color-bg: #f6f4ef;
+  --color-surface: #fff;
   --color-text: #222;
-  --color-accent: #e8483b;
+  --color-muted: #6b6b6b;
+  --color-border: #d9d5cc;
+  --color-accent: #c8402f;
+  --color-accent-text: #fff;
+  --color-danger: #b3261e;
+  --color-notice-bg: #fff3cd;
+
+  --radius: 10px;
+  --space-xs: 4px;
+  --space-sm: 8px;
   --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+
+  --font-sm: 0.875rem;
+  --font-md: 1rem;
+  --font-lg: 1.25rem;
+  --font-xl: 1.75rem;
+  --font-xxl: 2.5rem;
 }
 
 *,
@@ -17,4 +37,11 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+button,
+input,
+select {
+  font: inherit;
 }

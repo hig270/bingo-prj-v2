@@ -1,0 +1,63 @@
+.header {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+// パソコン（プロジェクター）では QR と参加者を横に並べ、スマホでは縦に並べる
+.layout {
+  display: grid;
+  gap: var(--space-lg);
+
+  @media (width >= 900px) {
+    grid-template-columns: minmax(320px, 2fr) 3fr;
+    align-items: start;
+  }
+}
+
+.join {
+  justify-items: center;
+  text-align: center;
+}
+
+.qr {
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+}
+
+.url {
+  margin: 0;
+  font-size: var(--font-lg);
+  overflow-wrap: anywhere;
+}
+
+// QR を読めない人が手で打てるよう、ルーム ID は大きく、折り返さずに出す
+.roomId {
+  display: block;
+  font-size: var(--font-xxl);
+  font-weight: bold;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.player {
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg);
+  color: inherit;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--color-danger);
+  }
+}

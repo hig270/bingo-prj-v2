@@ -1,0 +1,257 @@
+import { CLOSE, PlayerId, type ServerMessage } from "@bingo/protocol";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  CONNECT_TIMEOUT_MS,
+  PING_INTERVAL_MS,
+  PONG_TIMEOUT_MS,
+  connectRoom,
+  type SocketLike,
+  type SocketStatus,
+} from "./socket";
+
+/** テスト用の偽の WebSocket。サーバー側の動きは、テストから open・receive・serverClose で起こす */
+class FakeSocket implements SocketLike {
+  readyState: number = WebSocket.CONNECTING;
+  readonly sent: string[] = [];
+  closedByClient = false;
+  private readonly listeners = new Map<string, ((event: never) => void)[]>();
+
+  addEventListener(type: string, listener: (event: never) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+  send(data: string): void {
+    this.sent.push(data);
+  }
+  close(): void {
+    this.closedByClient = true;
+  }
+
+  private emit(type: string, event: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event as never);
+    }
+  }
+  open(): void {
+    this.readyState = WebSocket.OPEN;
+    this.emit("open", {});
+  }
+  receive(data: string): void {
+    this.emit("message", { data });
+  }
+  serverClose(code: number): void {
+    this.readyState = WebSocket.CLOSED;
+    this.emit("close", { code });
+  }
+}
+
+function setup() {
+  const sockets: FakeSocket[] = [];
+  const statuses: SocketStatus[] = [];
+  const messages: ServerMessage[] = [];
+  const connection = connectRoom(
+    "ws://example.com/r/K7MQ4P/ws",
+    {
+      onStatus: (s) => statuses.push(s),
+      onMessage: (m) => messages.push(m),
+    },
+    () => {
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      return socket;
+    },
+  );
+  const last = () => {
+    const socket = sockets.at(-1);
+    if (socket === undefined) throw new Error("接続がない");
+    return socket;
+  };
+  return { sockets, statuses, messages, connection, last };
+}
+
+const bye = (reason: string) => JSON.stringify({ type: "bye", reason });
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("connectRoom", () => {
+  it("届いたメッセージを形を確かめてから渡す", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive(
+      JSON.stringify({ type: "playerRemoved", playerId: "abcdefgh" }),
+    );
+    expect(t.statuses).toEqual([{ kind: "open" }]);
+    expect(t.messages).toEqual([
+      { type: "playerRemoved", playerId: "abcdefgh" },
+    ]);
+  });
+
+  it("形の合わないメッセージが届いたら、画面が古いとして終わる", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive(JSON.stringify({ type: "unknown" }));
+    expect(t.statuses.at(-1)).toEqual({ kind: "ended", reason: "outdated" });
+    expect(t.last().closedByClient).toBe(true);
+  });
+
+  it("bye（外された）を受け取ったら、close を待たずに終わり、つなぎ直さない", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive(bye("kicked"));
+    expect(t.statuses.at(-1)).toEqual({ kind: "ended", reason: "kicked" });
+    expect(t.last().closedByClient).toBe(true);
+    // 後で close が届いても何もしない
+    t.last().serverClose(CLOSE.kicked);
+    vi.advanceTimersByTime(60_000);
+    expect(t.sockets).toHaveLength(1);
+  });
+
+  it("理由なく切れたら、待ってからつなぎ直す", () => {
+    const t = setup();
+    t.last().open();
+    t.last().serverClose(1006);
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+    vi.advanceTimersByTime(499);
+    expect(t.sockets).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("bye が届かなくても、close コードから理由を読む", () => {
+    const t = setup();
+    t.last().open();
+    t.last().serverClose(CLOSE.replaced);
+    expect(t.statuses.at(-1)).toEqual({ kind: "ended", reason: "replaced" });
+  });
+
+  it("送りすぎで切られたら、60 秒待ってからつなぎ直す", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive(bye("rateLimited"));
+    expect(t.statuses.at(-1)?.kind).toBe("cooldown");
+    vi.advanceTimersByTime(59_999);
+    expect(t.sockets).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("つないだ直後に ping を1回送り、その後は決まった間隔で送る", () => {
+    // 直後の1回は、workerd の不具合（一度も送っていない接続をサーバーが切ると、TCP の切断が遅れる）の回避
+    const t = setup();
+    t.last().open();
+    expect(t.last().sent).toEqual(["ping"]);
+    t.last().receive("pong");
+    vi.advanceTimersByTime(PING_INTERVAL_MS);
+    expect(t.last().sent).toEqual(["ping", "ping"]);
+  });
+
+  it("ping に pong が返ってくれば、つながったままにする", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive("pong");
+    vi.advanceTimersByTime(PING_INTERVAL_MS);
+    t.last().receive("pong");
+    vi.advanceTimersByTime(PONG_TIMEOUT_MS * 2);
+    expect(t.sockets).toHaveLength(1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "open" });
+  });
+
+  it("pong が返ってこなければ、close を待たずにつなぎ直す（電波が切れた場合）", () => {
+    const t = setup();
+    const first = t.last();
+    first.open();
+    // 直後の ping に答えがないまま待つ
+    vi.advanceTimersByTime(PONG_TIMEOUT_MS - 1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "open" });
+    vi.advanceTimersByTime(1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+    expect(first.closedByClient).toBe(true);
+    vi.advanceTimersByTime(500);
+    expect(t.sockets).toHaveLength(2);
+    // 見限った接続から後で close が届いても、つなぎ直しを重ねない
+    first.serverClose(1006);
+    vi.advanceTimersByTime(10_000);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("つなぐ途中のまま止まったら、時間切れでつなぎ直す（電波が無いとき）", () => {
+    const t = setup();
+    const first = t.last();
+    vi.advanceTimersByTime(CONNECT_TIMEOUT_MS - 1);
+    expect(t.statuses).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+    expect(first.closedByClient).toBe(true);
+    vi.advanceTimersByTime(500);
+    expect(t.sockets).toHaveLength(2);
+    // 見限った接続が後でつながっても、何もしない
+    first.open();
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+  });
+
+  it("つながらないまま切れ続けると、待ち時間を延ばす（0.5 秒、1 秒、2 秒…）", () => {
+    const t = setup();
+    t.last().serverClose(1006);
+    vi.advanceTimersByTime(500);
+    expect(t.sockets).toHaveLength(2);
+    t.last().serverClose(1006);
+    vi.advanceTimersByTime(999);
+    expect(t.sockets).toHaveLength(2);
+    vi.advanceTimersByTime(1);
+    expect(t.sockets).toHaveLength(3);
+    t.last().serverClose(1006);
+    vi.advanceTimersByTime(1999);
+    expect(t.sockets).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(t.sockets).toHaveLength(4);
+    // つながったら、待ち時間は最初に戻る
+    t.last().open();
+    t.last().serverClose(1006);
+    vi.advanceTimersByTime(500);
+    expect(t.sockets).toHaveLength(5);
+  });
+
+  it("つなぎ直しを待っている間に stop したら、つなぎ直さない", () => {
+    const t = setup();
+    t.last().open();
+    t.last().serverClose(1006);
+    t.connection.stop();
+    // タイマーを消し忘れていないこと
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60_000);
+    expect(t.sockets).toHaveLength(1);
+  });
+
+  it("送りすぎで待っている間に stop したら、つなぎ直さない", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive(bye("rateLimited"));
+    t.connection.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(120_000);
+    expect(t.sockets).toHaveLength(1);
+  });
+
+  it("つながっているときだけ送り、stop の後はつなぎ直さない", () => {
+    const t = setup();
+    t.connection.send({ type: "kick", playerId: PlayerId.parse("abcdefgh") });
+    expect(t.last().sent).toEqual([]);
+    t.last().open();
+    t.connection.send({ type: "kick", playerId: PlayerId.parse("abcdefgh") });
+    expect(t.last().sent).toEqual([
+      "ping",
+      JSON.stringify({ type: "kick", playerId: "abcdefgh" }),
+    ]);
+    t.connection.stop();
+    expect(t.last().closedByClient).toBe(true);
+    // つながっている間の ping・pong の待ちも消える
+    expect(vi.getTimerCount()).toBe(0);
+    t.last().serverClose(1006);
+    vi.advanceTimersByTime(60_000);
+    expect(t.sockets).toHaveLength(1);
+  });
+});

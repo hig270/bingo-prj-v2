@@ -1,21 +1,25 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import styles from "./index.module.scss";
+import ui from "../ui/ui.module.scss";
 
 export const Route = createFileRoute("/")({
   component: Top,
 });
 
+/** トップ画面 */
 function Top() {
   return (
-    <main className={styles.page}>
-      <h1 className={styles.title}>Bingo!</h1>
-      {/* 骨組みの確認用。ルーム ID はまだ仮 */}
-      <Link to="/r/$roomId" params={{ roomId: "demo" }}>
-        プレイヤー画面（仮）
-      </Link>
-      <Link to="/r/$roomId/host" params={{ roomId: "demo" }}>
-        ホスト画面（仮）
-      </Link>
+    <main className={ui.page}>
+      <h1 className={ui.title}>Bingo!</h1>
+      <p>大人数のビンゴ大会を、スマホで遊べるようにします。</p>
+      <div>
+        <Link to="/new" className={ui.button}>
+          ビンゴ会場を作成
+        </Link>
+      </div>
+      <p className={ui.muted}>
+        参加する方は、会場のスクリーンに映っている QR
+        コードを読み取ってください。
+      </p>
     </main>
   );
 }
