@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CellIndex, CellMask, EMPTY_MASK, openCell } from "./cells";
-import { CardLayout, LAYOUTS, NUMBERS_PER_COLUMN } from "./layout";
+import { CardLayout, LAYOUTS, NUMBERS_PER_COLUMN, isCellOf } from "./layout";
 import { countCompletedLines } from "./lines";
 import { BingoNumber } from "./number";
 
@@ -96,9 +96,16 @@ export function cellOf(card: Card, n: BingoNumber): CellIndex | null {
   return i === -1 ? null : CellIndex.parse(i);
 }
 
-/** マスの番号。FREE のマスなら null */
-export function numberAt(card: Card, cell: CellIndex): BingoNumber | null {
-  return card.cells[cell] ?? null;
+/**
+ * マスの番号。FREE のマスなら "free"、そのカードの大きさの範囲の外（9マスで 9 以上など）なら null。
+ * 範囲の外と FREE を同じ値にすると、押されたマスを確かめるときに取り違えるので分ける
+ */
+export function numberAt(
+  card: Card,
+  cell: CellIndex,
+): BingoNumber | "free" | null {
+  if (!isCellOf(card.layout, cell)) return null;
+  return card.cells[cell] ?? "free";
 }
 
 /** ゲーム開始時に開いているマス（FREE のマスだけ） */

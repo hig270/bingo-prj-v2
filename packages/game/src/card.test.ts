@@ -119,6 +119,15 @@ describe("カードの番号とマス", () => {
     );
   });
 
+  it("numberAt は FREE なら free、カードの範囲の外なら null", () => {
+    const big = generateCard("5x5", () => 0);
+    expect(numberAt(big, CellIndex.parse(12))).toBe("free");
+    const small = generateCard("3x3", () => 0);
+    expect(numberAt(small, CellIndex.parse(8))).not.toBeNull();
+    expect(numberAt(small, CellIndex.parse(9))).toBeNull();
+    expect(numberAt(small, CellIndex.parse(24))).toBeNull();
+  });
+
   it("カードに無い番号は null", () => {
     const card = generateCard("3x3", () => 0);
     expect(cellOf(card, n(75))).toBeNull();
