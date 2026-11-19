@@ -7,3 +7,5 @@ pnpm-lock.yaml
 *.md
 worker-configuration.d.ts
 *.module.scss.d.ts
+# 文章の推敲の道具（yomiyasu）が作業の記録を置くフォルダ（git の対象外）
+.yomiyasu/

@@ -32,3 +32,22 @@
 .heading {
   margin: 0;
 }
+
+// 最下位の人のカード（同順位なら 3 枚まで横に並べ、入らなければ折り返す）
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  justify-content: center;
+}
+
+.figure {
+  display: grid;
+  gap: var(--space-xs);
+  justify-items: center;
+  margin: 0;
+}
+
+.cardName {
+  font-weight: bold;
+}

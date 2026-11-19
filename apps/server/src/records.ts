@@ -29,6 +29,11 @@ const GameRecord = z.object({
    * 公開したら draws の最後に移す
    */
   pending: BingoNumber.nullable(),
+  /**
+   * 放置の判定の区切り。ホストが最後に抽選ボタンかゲーム終了を押した時点で、公開済みだった番号の数
+   * （decisions.md 手順4「放置の条件」。番号が出てから次の抽選が始まるまでに開ければ、放置とはみなさない）
+   */
+  judgedDraws: z.number().int().nonnegative(),
 });
 export type GameRecord = z.infer<typeof GameRecord>;
 
@@ -69,6 +74,8 @@ export const PlayerRecord = z.object({
   opened: CellMask,
   /** 景品獲得ラインに達した抽選回。まだなら null */
   prizeRound: DrawRound.nullable(),
+  /** 最後にマスを開けた時点で、公開済みだった番号の数（まだ開けていなければ 0。放置の判定に使う） */
+  lastOpenDraws: z.number().int().nonnegative(),
   /** ホストに外されたか（外された人も記録は残し、同じ端末からの参加し直しを断る） */
   kicked: z.boolean(),
   joinedAt: z.number(),

@@ -1,6 +1,12 @@
 import { BingoNumber, CellIndex, CellMask, OpenEvent } from "@bingo/game";
 import { z } from "zod";
-import { HostPhase, PlayerPhase, PlayerSelf } from "./game";
+import {
+  HostPhase,
+  HostRanking,
+  PlayerPhase,
+  PlayerSelf,
+  PlayerStanding,
+} from "./game";
 import { PlayerId } from "./ids";
 import { PlayerSummary, RoomProfile } from "./room";
 import { PlayerName } from "./text";
@@ -67,6 +73,10 @@ export const ServerMessage = z.discriminatedUnion("type", [
     name: PlayerName,
     event: OpenEvent,
   }),
+  /** ホストに: ランキング（変化があったときに、0.5 秒ごとにまとめて送る。decisions.md 手順4） */
+  z.object({ type: z.literal("ranking"), ranking: HostRanking }),
+  /** プレイヤーに: 本人の順位（変わったときだけ、ランキングと同じ間隔で送る） */
+  z.object({ type: z.literal("standing"), standing: PlayerStanding }),
   /** プレイヤーに: 抽選が始まった（番号は公開まで送らない。この間はマスを押せない） */
   z.object({ type: z.literal("drawing") }),
   /** プレイヤーに: 抽選番号の公開 */

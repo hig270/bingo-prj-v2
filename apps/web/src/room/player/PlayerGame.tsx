@@ -13,6 +13,7 @@ import { playerNoticeText } from "../notice-text";
 import { BingoCard } from "./BingoCard";
 import styles from "./player.module.scss";
 import { PlayerMenu } from "./PlayerMenu";
+import { PlayerStats } from "./PlayerStats";
 
 type Playing = Extract<PlayerGameState, { status: "playing" }>;
 
@@ -91,6 +92,7 @@ export function PlayerGame({
         )}
         {allDrawn && <p className={ui.label}>全ての番号を抽選し終えました</p>}
       </section>
+      <PlayerStats view={view} game={game} />
       <p className={styles.cardName}>{view.me.name}</p>
       <BingoCard
         card={view.me.card}

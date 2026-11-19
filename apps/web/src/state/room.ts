@@ -11,9 +11,11 @@ import {
 } from "@bingo/game";
 import {
   DrawRound,
+  type HostRanking,
   type PlayerId,
   type PlayerName,
   type PlayerSelf,
+  type PlayerStanding,
   type PlayerSummary,
   type Results,
   type RoomProfile,
@@ -57,6 +59,8 @@ export type HostGame =
       } | null;
       /** 景品を獲得した人数 */
       readonly prizeWinners: number;
+      /** ランキング（順位を争っている人の上位） */
+      readonly ranking: HostRanking;
       /** 帯にまだ流していない知らせ（先頭から流す） */
       readonly notices: readonly Notice[];
       readonly nextNoticeId: number;
@@ -90,6 +94,8 @@ export type PlayerGame =
       readonly drawing: boolean;
       readonly opened: CellMask;
       readonly prizeRound: DrawRound | null;
+      /** 本人の順位（D。サーバーが決めて送る） */
+      readonly standing: PlayerStanding;
     }
   | {
       readonly status: "finished";
@@ -226,6 +232,16 @@ export function reduceRoom(state: RoomState, action: RoomAction): RoomState {
       }));
     case "local/askEndClosed":
       return updateHostPlaying(state, (game) => ({ ...game, askEnd: false }));
+    case "ranking":
+      return updateHostPlaying(state, (game) => ({
+        ...game,
+        ranking: action.ranking,
+      }));
+    case "standing":
+      return updatePlayerPlaying(state, (game) => ({
+        ...game,
+        standing: action.standing,
+      }));
     case "drawing":
       return updatePlayerPlaying(state, (game) => ({ ...game, drawing: true }));
     case "numberPublished":
@@ -312,6 +328,7 @@ function hostGameOf(
         requesting: false,
         current: null,
         prizeWinners: phase.prizeWinners,
+        ranking: phase.ranking,
         notices: [],
         nextNoticeId: 0,
         askEnd: false,
