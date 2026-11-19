@@ -426,14 +426,19 @@ describe("ランキング", () => {
   });
 
   it("自分の番号が2個出たまま、次の抽選が押されても開けていなければ放置になり、開けると戻る", async () => {
-    // はなこのカードの番号を 2 個だけ公開済みにする
-    const { host, players } = await playingWithDraws(
+    // はなこのカードにだけある番号を 2 個公開済みにする（たろうのカードにもあると、たろうも放置になるため）
+    const onlyHana = (taro: Card | undefined, hana: Card | undefined) =>
+      (hana?.cells ?? [])
+        .flatMap((n) => (n === null ? [] : [n]))
+        .filter((n) => !(taro?.cells ?? []).includes(n))
+        .slice(0, 2);
+    const { host, players, cards } = await playingWithDraws(
       ["たろう", "はなこ"],
-      ([, card]) =>
-        (card?.cells ?? []).flatMap((n) => (n === null ? [] : [n])).slice(0, 2),
+      ([taro, hana]) => onlyHana(taro, hana),
     );
     const hana = players[1];
-    if (hana === undefined) throw new Error("参加者");
+    const opened = onlyHana(cards[0], cards[1])[0];
+    if (hana === undefined || opened === undefined) throw new Error("参加者");
     send(host, { type: "draw" });
     await until(
       () => last(hana.conn, "standing")?.standing.status === "idle",
@@ -444,7 +449,10 @@ describe("ランキング", () => {
       "ランキングから外れる",
     );
     // 抽選中でも、公開済みの番号のマスは開けられる
-    send(hana.conn, { type: "open", cell: 0 });
+    send(hana.conn, {
+      type: "open",
+      cell: cards[1]?.cells.indexOf(opened),
+    });
     await until(
       () => last(hana.conn, "standing")?.standing.status === "contending",
       "戻る",
