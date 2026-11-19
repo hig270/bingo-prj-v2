@@ -18,7 +18,9 @@ export {
   isCellOf,
   type LayoutSpec,
 } from "./layout";
-export { countCompletedLines } from "./lines";
+export { countCompletedLines, countReachLines } from "./lines";
+export { pickNextNumber, remainingNumbers } from "./draw";
+export { OpenEvent, eventOfOpen, progressOf, type Progress } from "./progress";
 export {
   Card,
   cellOf,
