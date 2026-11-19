@@ -144,6 +144,31 @@ export class RoomDO extends DurableObject<Env> {
         BlockedUntil.parse(value),
       );
     }
+    this.restoreSentRanking();
+  }
+
+  /**
+   * 休止から戻ったときに、最後に送ったランキングと順位を、今の記録から作り直す。
+   * 休止するのは送り残しがないとき（後追いのタイマーが残っている間は休止しない。2026-11-20 に公式の資料で確認）だけなので、
+   * 今の記録から計算した値は、最後に送った値と同じになる。覚え直しておけば、戻ったあとに全員へ同じ順位を送り直さずに済む。
+   * 動いている最中にコードを更新したときは接続が切れ、つなぎ直したときに全体の状態を送り直す（同じ日に公式の資料で確認）。
+   * 休止を経ずにメモリから消えたときに接続が残るかは資料に書かれていない。残った場合は、タイマーの予約中（最大 0.5 秒）の
+   * 変化が、その人の順位が次に変わるか、つなぎ直すまで届かない
+   */
+  private restoreSentRanking(): void {
+    if (this.room?.phase.status !== "playing") return;
+    try {
+      const standings = this.standings();
+      const ranking = rankingMessage(this.hostRanking(standings));
+      const byPlayer = new Map<PlayerId, string>();
+      for (const [id, standing] of playerStandings(standings)) {
+        byPlayer.set(id, standingMessage(standing));
+      }
+      this.sentRanking = ranking;
+      for (const [id, text] of byPlayer) this.sentStandings.set(id, text);
+    } catch {
+      // 送信を減らすための処理なので、失敗しても全員に送り直せば足りる（ここで止めると、ルームが読み込めなくなる）
+    }
   }
 
   private remember(player: PlayerRecord): void {
