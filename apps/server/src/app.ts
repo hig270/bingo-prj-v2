@@ -165,6 +165,26 @@ export function createApp() {
         },
       )
 
+      // ゲームの開始の後で、参加の記録（Cookie）の期限を延ばす。延ばした Cookie は同じ値のまま付け直す
+      .post("/r/:roomId/api/extend", async (c) => {
+        const roomId = roomIdOf(c);
+        if (roomId === null) return c.json({ error: "notFound" } as const, 404);
+        const result = await roomOf(c.env, roomId).extend(
+          await tokenHashes(c),
+          Date.now(),
+        );
+        if (result === null) return c.json({ error: "notFound" } as const, 404);
+        const host = getCookie(c, COOKIE.host);
+        const player = getCookie(c, COOKIE.player);
+        if (result.host && host !== undefined) {
+          setTokenCookie(c, COOKIE.host, roomId, host);
+        }
+        if (result.player && player !== undefined) {
+          setTokenCookie(c, COOKIE.player, roomId, player);
+        }
+        return c.json(result, 200);
+      })
+
       // WebSocket の接続。別のサイトから開かれていないか（Origin）を確かめてからルームに渡す
       .get("/r/:roomId/ws", async (c) => {
         const roomId = roomIdOf(c);

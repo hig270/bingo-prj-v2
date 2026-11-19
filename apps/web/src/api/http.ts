@@ -1,5 +1,6 @@
 import {
   CreateRoomResponse,
+  ExtendResponse,
   JoinResponse,
   MeResponse,
   type PlayerName,
@@ -85,5 +86,15 @@ export function joinRoom(
       json: { name },
     });
     return check(res, JoinResponse);
+  });
+}
+
+/** ゲームの開始の後で、参加の記録（Cookie）の期限を延ばしてもらう（ブラウザが新しい期限の Cookie を受け取る） */
+export function extendSession(roomId: RoomId): Promise<Result<ExtendResponse>> {
+  return attempt(async () => {
+    const res = await client.r[":roomId"].api.extend.$post({
+      param: { roomId },
+    });
+    return check(res, ExtendResponse);
   });
 }

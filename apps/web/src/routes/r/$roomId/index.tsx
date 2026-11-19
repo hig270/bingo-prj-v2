@@ -13,6 +13,9 @@ import { fetchMe, joinRoom } from "../../../api/http";
 import { useRoomSocket } from "../../../api/socket";
 import { ConnectionNotice } from "../../../room/ConnectionNotice";
 import { LoadProblem } from "../../../room/LoadProblem";
+import { PlayerGame } from "../../../room/player/PlayerGame";
+import { ResultsView } from "../../../room/ResultsView";
+import { useExtendSession } from "../../../room/useExtendSession";
 import { ruleSummary } from "../../../rules/summary";
 import { useRoomStore } from "../../../state/room-store";
 import ui from "../../../ui/ui.module.scss";
@@ -31,7 +34,7 @@ function PlayerPage() {
 
   switch (me.role) {
     case "player":
-      return <Waiting roomId={roomId} />;
+      return <PlayerRoom roomId={roomId} />;
     case "kicked":
       return (
         <main className={ui.page}>
@@ -173,32 +176,66 @@ function JoinForm({
   );
 }
 
-/** 待機画面（ゲーム開始を待つ） */
-function Waiting({ roomId }: { readonly roomId: RoomId }) {
+/** 参加した後の画面（待機画面 → ゲーム画面 → 結果画面。サーバーから届いた状態で切り替える） */
+function PlayerRoom({ roomId }: { readonly roomId: RoomId }) {
   const receive = useRoomStore((s) => s.receive);
+  const dispatch = useRoomStore((s) => s.dispatch);
   const reset = useRoomStore((s) => s.reset);
   const state = useRoomStore((s) => s.state);
   useEffect(() => {
     reset();
   }, [roomId, reset]);
-  const { status } = useRoomSocket(roomId, receive);
+  const { status, send } = useRoomSocket(roomId, receive);
+  useExtendSession(
+    roomId,
+    state.view === "player" && state.game.status === "playing",
+  );
 
   return (
     <main className={ui.page}>
       <ConnectionNotice status={status} />
-      {status.kind !== "ended" && state.view === "player" && (
-        <>
-          <h1 className={ui.title}>{state.room.name}</h1>
-          <div className={ui.card}>
-            <p className={ui.subtitle}>参加しました！</p>
-            <p>
-              あなたの名前: <strong>{state.me.name}</strong>
-            </p>
-            <p className={ui.muted}>ルール: {ruleSummary(state.room.rule)}</p>
-          </div>
-          <p>ホストがゲームを始めるまで、この画面のままお待ちください。</p>
-        </>
-      )}
+      {status.kind !== "ended" &&
+        state.view === "player" &&
+        (() => {
+          const game = state.game;
+          switch (game.status) {
+            case "lobby":
+              return (
+                <>
+                  <h1 className={ui.title}>{state.room.name}</h1>
+                  <div className={ui.card}>
+                    <p className={ui.subtitle}>参加しました！</p>
+                    <p>
+                      あなたの名前: <strong>{state.me.name}</strong>
+                    </p>
+                    <p className={ui.muted}>
+                      ルール: {ruleSummary(state.room.rule)}
+                    </p>
+                  </div>
+                  <p>
+                    ホストがゲームを始めるまで、この画面のままお待ちください。
+                  </p>
+                </>
+              );
+            case "playing":
+              return (
+                <PlayerGame
+                  view={state}
+                  game={game}
+                  connected={status.kind === "open"}
+                  send={send}
+                  dispatch={dispatch}
+                />
+              );
+            case "finished":
+              return (
+                <>
+                  <h1 className={ui.title}>{state.room.name}</h1>
+                  <ResultsView results={game.results} me={state.me.id} />
+                </>
+              );
+          }
+        })()}
     </main>
   );
 }

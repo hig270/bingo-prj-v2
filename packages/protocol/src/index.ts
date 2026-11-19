@@ -18,6 +18,7 @@ export {
 export {
   CreateRoomError,
   CreateRoomResponse,
+  ExtendResponse,
   JoinError,
   JoinRequest,
   JoinResponse,
@@ -26,6 +27,7 @@ export {
   PlayerSummary,
   PrizeCount,
   RoomInfo,
+  RoomProfile,
   RoomSettings,
   RoomStatus,
 } from "./room";
@@ -37,3 +39,11 @@ export {
   ServerMessage,
   type CloseCode,
 } from "./messages";
+export {
+  DrawRound,
+  HostPhase,
+  PlayerPhase,
+  PlayerSelf,
+  ResultEntry,
+  Results,
+} from "./game";

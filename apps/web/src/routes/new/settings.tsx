@@ -8,17 +8,24 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { z } from "zod";
 import { createRoom } from "../../api/http";
-import { BASIC_RULES, LAYOUT_LABEL, ruleSummary } from "../../rules/summary";
+import {
+  BASIC_RULES,
+  LAYOUT_LABEL,
+  WIN_READY,
+  isBasicRuleReady,
+  ruleSummary,
+} from "../../rules/summary";
 import ui from "../../ui/ui.module.scss";
 import styles from "./new.module.scss";
 
 const Mode = z.enum(["normal", "speed", "reverse"]);
 
 export const Route = createFileRoute("/new/settings")({
-  // URL の ?mode= を確かめる（知らない値なら通常にする）
-  validateSearch: (search) => ({
-    mode: Mode.catch("normal").parse(search["mode"]),
-  }),
+  // URL の ?mode= を確かめる（知らない値と、まだ遊べない基本ルールなら通常にする）
+  validateSearch: (search) => {
+    const mode = Mode.catch("normal").parse(search["mode"]);
+    return { mode: isBasicRuleReady(mode) ? mode : "normal" };
+  },
   component: Settings,
 });
 
@@ -201,11 +208,13 @@ function Settings() {
                   type="radio"
                   name="win"
                   checked={winType === value}
+                  disabled={!WIN_READY[value]}
                   onChange={() => {
                     setWinType(value);
                   }}
                 />{" "}
                 {label}
+                {!WIN_READY[value] && "（準備中）"}
               </label>
             ))}
           </fieldset>

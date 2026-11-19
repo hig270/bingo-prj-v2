@@ -113,6 +113,14 @@ export class DrawSound {
     }
   }
 
+  /**
+   * 鳴り続ける音（ドラムロール）を止める。演出の途中で画面が切り替わったときに呼ぶ
+   * （演出が止まると、ドラムロールを止める「発表」のきっかけが来なくなるため）
+   */
+  stop(): void {
+    if (this.ctx !== null) this.stopDrumRoll(this.ctx.currentTime);
+  }
+
   /** 演出のきっかけに合わせて音を鳴らす */
   play(cue: DrawCue): void {
     const ctx = this.ctx;

@@ -42,6 +42,11 @@
 - Wrangler（公式 CLI）。`wrangler dev` で Durable Objects を含めて手元で動かせる。`wrangler deploy` でデプロイ。
 - Vitest 用の公式ツール（@cloudflare/vitest-plugin）で Durable Objects を含むテストが書ける。
 - ユーザーは Cloudflare 管理の個人ドメインを持っており、そのまま割り当てられる。
+- 画面の動作確認は、Playwright でホストとプレイヤーの複数の画面を自動で動かし、画面写真を撮って行う（2026-11-19 に手順3で行った方法）。プロジェクトの依存は増やさず、次のように用意した。
+  - 操作用のパッケージ `playwright-core` は、リポジトリの外の一時フォルダに `npm i` で入れる（プロジェクトの中では npm が動かない）。手順3では、その PC の `~/.cache/ms-playwright/` に前からあったブラウザ（パッケージとは版が違う）を `executablePath` で指定して動かした。ブラウザが無ければ、同じ一時フォルダで `npx playwright-core install chromium` を実行して入れる（このコマンドはまだ試していない）。
+  - WSL の Ubuntu では、ブラウザを動かすのにシステムのライブラリが要る。手順3の PC（Ubuntu 26.04）で足りなかったのは `libnss3 libnspr4 libasound2t64` で、ユーザーが `sudo apt-get install -y` で入れた。ほかの PC では、`ldd <ブラウザの実行ファイル> | grep "not found"` で足りないものを確かめる。
+  - 日本語のフォントがないと、文字が「□」になる。一時フォルダに `fonts/` を作って Windows のフォント（`/mnt/c/Windows/Fonts/meiryo.ttc` と `meiryob.ttc`）へのシンボリックリンクを置き、`/etc/fonts/fonts.conf` とその `fonts/` を読み込む fontconfig の設定ファイル（`cachedir` も一時フォルダに置く）を作って、`FONTCONFIG_FILE` で渡す（ホームの設定は変えない）。
+- サーバーのテストで WebSocket から抽選を続けて送ると、接続ごとの送信回数の制限（容量 10 回、毎秒 2 回分を補充。`apps/server/src/rate-limit.ts`）にかかる。たくさん抽選した状態が要るテストは、抽選済みの番号を保存領域に直接書いて用意する（`apps/server/test/game.test.ts` の `setDraws`）。画面の抽選ボタンは演出の間は押せないので、Playwright での操作では制限にかからない。
 
 ## 試算と性能
 

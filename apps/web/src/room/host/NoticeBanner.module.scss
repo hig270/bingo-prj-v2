@@ -1,0 +1,23 @@
+// ホスト画面の上部を横切る帯（decisions.md「演出と音」のホスト画面の知らせ）
+.banner {
+  position: relative;
+  height: 64px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.item {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--font-xl);
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.prize {
+  color: var(--color-accent);
+}

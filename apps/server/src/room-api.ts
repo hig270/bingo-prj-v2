@@ -1,4 +1,5 @@
 import type {
+  ExtendResponse,
   JoinResponse,
   MeResponse,
   PlayerName,
@@ -44,6 +45,11 @@ export interface RoomApi {
     newTokenHash: string,
     now: number,
   ) => Promise<JoinResult | null>;
+  /** ゲームの開始の後で、参加の記録の期限を延ばす。ルームが無ければ null */
+  readonly extend: (
+    tokens: TokenHashes,
+    now: number,
+  ) => Promise<ExtendResponse | null>;
   /** WebSocket の接続開始 */
   readonly fetch: (request: Request) => Promise<Response>;
 }

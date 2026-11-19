@@ -1,0 +1,42 @@
+// 抽選番号の玉（列ごとの色は抽選演出の玉とそろえる。decisions.md「演出と音」）
+.ball {
+  --ball-color: #888;
+  display: inline-grid;
+  place-items: center;
+  width: var(--ball-size, 36px);
+  height: var(--ball-size, 36px);
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: calc(var(--ball-size, 36px) * 0.4);
+  color: #222;
+  background: radial-gradient(circle, #fff 45%, var(--ball-color) 47%);
+
+  &[data-letter="B"] {
+    --ball-color: #2f80ed;
+  }
+  &[data-letter="I"] {
+    --ball-color: #eb5757;
+  }
+  &[data-letter="N"] {
+    --ball-color: #bdbdbd;
+  }
+  &[data-letter="G"] {
+    --ball-color: #27ae60;
+  }
+  &[data-letter="O"] {
+    --ball-color: #f2c94c;
+  }
+}
+
+.large {
+  --ball-size: 96px;
+}
+
+.history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

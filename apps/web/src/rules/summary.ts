@@ -27,6 +27,20 @@ export const BASIC_RULES = {
 
 export type BasicRule = keyof typeof BASIC_RULES;
 
+/**
+ * 勝ち方のうち、もう遊べるもの。逆ビンゴは手順5で作るので、それまでは選べなくする
+ * （decisions.md「3（遊べる最小限）の範囲」。作ったら true にする）
+ */
+export const WIN_READY: Record<GameRule["win"]["type"], boolean> = {
+  bingo: true,
+  reverse: false,
+};
+
+/** 基本ルールが、もう遊べるか */
+export function isBasicRuleReady(mode: BasicRule): boolean {
+  return WIN_READY[BASIC_RULES[mode].rule.win.type];
+}
+
 export const LAYOUT_LABEL: Record<CardLayout, string> = {
   "5x5": "5×5",
   "3x3": "9マス",

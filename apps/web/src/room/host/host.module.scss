@@ -61,3 +61,40 @@
     border-color: var(--color-danger);
   }
 }
+
+// ---- ゲーム画面 ----
+
+.game {
+  display: grid;
+  gap: var(--space-md);
+
+  @media (width >= 900px) {
+    grid-template-columns: 3fr 2fr;
+    align-items: start;
+  }
+}
+
+.stage {
+  display: grid;
+  gap: var(--space-md);
+  justify-items: center;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  margin: 0;
+  font-size: var(--font-lg);
+}
+
+.drawButton {
+  min-width: 240px;
+  font-size: var(--font-xl);
+}
+
+.allDrawn {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: bold;
+}

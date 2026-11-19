@@ -1,16 +1,18 @@
-import type { PlayerSummary, RoomId } from "@bingo/protocol";
+import type { RoomId } from "@bingo/protocol";
 import { createFileRoute } from "@tanstack/react-router";
-import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState } from "react";
 import { fetchMe } from "../../../api/http";
 import { useRoomSocket } from "../../../api/socket";
 import { ConnectionNotice } from "../../../room/ConnectionNotice";
+import { DrawHistory } from "../../../room/Ball";
+import { HostGame } from "../../../room/host/HostGame";
+import { HostLobby } from "../../../room/host/HostLobby";
 import { LoadProblem } from "../../../room/LoadProblem";
-import { ruleSummary } from "../../../rules/summary";
+import { ResultsView } from "../../../room/ResultsView";
+import { useExtendSession } from "../../../room/useExtendSession";
+import { DrawSound } from "../../../sound/draw-sound";
 import { useRoomStore } from "../../../state/room-store";
-import { ConfirmDialog } from "../../../ui/ConfirmDialog";
 import ui from "../../../ui/ui.module.scss";
-import styles from "./host.module.scss";
 
 export const Route = createFileRoute("/r/$roomId/host")({
   loader: ({ params }) => fetchMe(params.roomId),
@@ -30,91 +32,71 @@ function HostPage() {
       </main>
     );
   }
-  return <Lobby roomId={roomId} />;
+  return <HostRoom roomId={roomId} />;
 }
 
-/** 参加用の URL（LINE で開いたときに外部のブラウザで開かせる指定を付ける） */
-function joinUrl(roomId: RoomId): string {
-  return `${location.origin}/r/${roomId}?openExternalBrowser=1`;
-}
-
-/** 募集画面 */
-function Lobby({ roomId }: { readonly roomId: RoomId }) {
+/** ホストの画面の中身（募集画面 → ゲーム画面 → 結果画面。サーバーから届いた状態で切り替える） */
+function HostRoom({ roomId }: { readonly roomId: RoomId }) {
   const receive = useRoomStore((s) => s.receive);
+  const dispatch = useRoomStore((s) => s.dispatch);
   const reset = useRoomStore((s) => s.reset);
   const state = useRoomStore((s) => s.state);
   useEffect(() => {
     reset();
   }, [roomId, reset]);
   const { status, send } = useRoomSocket(roomId, receive);
-  const [kickTarget, setKickTarget] = useState<PlayerSummary | null>(null);
+  // 抽選演出の音（「ゲーム開始」と抽選ボタンを押したときに有効にする。decisions.md「演出と音」）
+  const [sound] = useState(() => new DrawSound());
+  useExtendSession(
+    roomId,
+    state.view === "host" && state.game.status === "playing",
+  );
+  const connected = status.kind === "open";
 
   return (
     <main className={`${ui.page} ${ui.wide}`}>
       <ConnectionNotice status={status} />
-      {status.kind !== "ended" && state.view === "host" && (
-        <>
-          <header className={styles.header}>
-            <h1 className={ui.title}>{state.room.name}</h1>
-            <p className={ui.muted}>ルール: {ruleSummary(state.room.rule)}</p>
-          </header>
-          <div className={styles.layout}>
-            <section className={`${ui.card} ${styles.join}`}>
-              <h2 className={ui.subtitle}>参加はこちら</h2>
-              <QRCodeSVG
-                value={joinUrl(roomId)}
-                className={styles.qr}
-                marginSize={2}
-                title="参加用の QR コード"
-              />
-              <p className={styles.url}>
-                {location.host}/r/
-                <span className={styles.roomId}>{roomId}</span>
-              </p>
-            </section>
-            <section className={ui.card}>
-              <h2 className={ui.subtitle}>参加者 {state.players.length} 人</h2>
-              {state.players.length === 0 ? (
-                <p className={ui.muted}>まだ誰も参加していません</p>
-              ) : (
-                <ul className={styles.players}>
-                  {state.players.map((player) => (
-                    <li key={player.id}>
-                      <button
-                        type="button"
-                        className={styles.player}
-                        title="押すと、この人を外せます"
-                        onClick={() => {
-                          setKickTarget(player);
-                        }}
-                      >
-                        {player.name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <p className={ui.muted}>
-                名前を押すと、その人をルームから外せます（不適切な名前など）
-              </p>
-            </section>
-          </div>
-        </>
-      )}
-      <ConfirmDialog
-        open={kickTarget !== null}
-        message={`${kickTarget?.name ?? ""} さんを外しますか？ 外した人は、同じ端末から参加し直せません。`}
-        confirmLabel="外す"
-        onConfirm={() => {
-          if (kickTarget !== null) {
-            send({ type: "kick", playerId: kickTarget.id });
+      {status.kind !== "ended" &&
+        state.view === "host" &&
+        (() => {
+          const game = state.game;
+          switch (game.status) {
+            case "lobby":
+              return (
+                <HostLobby
+                  roomId={roomId}
+                  view={state}
+                  connected={connected}
+                  send={send}
+                  onStart={() => void sound.unlock()}
+                />
+              );
+            case "playing":
+              return (
+                <HostGame
+                  view={state}
+                  game={game}
+                  connected={connected}
+                  send={send}
+                  dispatch={dispatch}
+                  sound={sound}
+                />
+              );
+            case "finished":
+              return (
+                <>
+                  <h1 className={ui.title}>{state.room.name}</h1>
+                  <ResultsView results={game.results} />
+                  <section className={ui.card}>
+                    <h2 className={ui.subtitle}>
+                      抽選履歴（{game.draws.length} 個）
+                    </h2>
+                    <DrawHistory draws={game.draws} />
+                  </section>
+                </>
+              );
           }
-          setKickTarget(null);
-        }}
-        onCancel={() => {
-          setKickTarget(null);
-        }}
-      />
+        })()}
     </main>
   );
 }
