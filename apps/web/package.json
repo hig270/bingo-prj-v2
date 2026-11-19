@@ -17,7 +17,9 @@
     "@bingo/protocol": "workspace:*",
     "@tanstack/react-router": "^1.170.46",
     "canvas-confetti": "^1.9.4",
+    "hono": "catalog:",
     "motion": "^14.12.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zod": "catalog:",
@@ -25,6 +27,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.13",
+    "@bingo/server": "workspace:*",
     "@cloudflare/vite-plugin": "^1.69.0",
     "@rolldown/plugin-babel": "^0.3.1",
     "@tanstack/router-plugin": "^1.169.0",
