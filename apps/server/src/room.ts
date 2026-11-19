@@ -1,7 +1,11 @@
 import {
   type BingoNumber,
   type CellIndex,
+  type CellMask,
+  type ExpectedKey,
+  LAYOUTS,
   eventOfOpen,
+  expectedKey,
   generateCard,
   initialMask,
   isCellOf,
@@ -17,8 +21,10 @@ import {
   DrawRound,
   type ExtendResponse,
   type HostPhase,
+  type HostRanking,
   PlayerId,
   type PlayerPhase,
+  type PlayerStanding,
   RATE_LIMIT_COOLDOWN_SECONDS,
   nameKey,
   type Me,
@@ -45,7 +51,13 @@ import {
   blockedKey,
   playerKey,
 } from "./records";
-import { rankResults } from "./results";
+import {
+  type Standings,
+  hostRanking,
+  playerStandings,
+  rankResults,
+  standingsOf,
+} from "./results";
 import {
   TOKEN_TTL_SECONDS,
   randomString,
@@ -60,6 +72,19 @@ const PLAYERS_TAG = "players";
 export const MAX_PLAYERS = 1000;
 
 const TTL_MS = TOKEN_TTL_SECONDS * 1000;
+
+/**
+ * ランキングを送る間隔（ミリ秒）。変化があっても、前回からこの時間がたつまでは送らずにまとめる
+ * （decisions.md 手順4「ランキングは、変化があったときに0.5秒ごとにまとめて送る」）
+ */
+export const RANKING_INTERVAL_MS = 500;
+
+/** 全体の状態を送るときに、全員に共通の値を1回だけ作って使い回すための入れ物 */
+interface SharedState {
+  readonly standings: () => Standings;
+  readonly standingOf: (id: PlayerId) => PlayerStanding;
+  readonly results: () => Results;
+}
 
 /**
  * ゲームを始めなかったルームを消すまでの時間（作ってから 24 時間）。
@@ -87,6 +112,14 @@ export class RoomDO extends DurableObject<Env> {
    * 休止しても残るよう保存領域にも書く。期限切れの記録は消さない（1人1件までで、ルームは数時間で使い終わるため）
    */
   private readonly blockedUntil = new Map<string, number>();
+  /** 開けたマスの形ごとの、期待抽選回数を比べる整数（ルールはルームごとに決まっているので、形だけで決まる） */
+  private readonly keys = new Map<CellMask, ExpectedKey | null>();
+  /** ランキングを最後に送った時刻と、送り残しを後で送るためのタイマー（休止すると消えるが、送り直せば足りる） */
+  private rankingSentAt = 0;
+  private rankingTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 最後に送ったランキングと、プレイヤーごとの順位（変わっていなければ送らないため） */
+  private sentRanking: string | null = null;
+  private readonly sentStandings = new Map<PlayerId, string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -189,6 +222,7 @@ export class RoomDO extends DurableObject<Env> {
       card: generateCard(room.rule.layout, secureRandom),
       opened: initialMask(room.rule.layout),
       prizeRound: null,
+      lastOpenDraws: 0,
       kicked: false,
       joinedAt: now,
     };
@@ -257,6 +291,10 @@ export class RoomDO extends DurableObject<Env> {
     this.players.clear();
     this.byToken.clear();
     this.blockedUntil.clear();
+    // 期待抽選回数の値はルールごとに違うので、同じ ID で作り直されたルームに持ち越さない
+    this.keys.clear();
+    this.sentRanking = null;
+    this.sentStandings.clear();
     for (const ws of this.ctx.getWebSockets()) this.bye(ws, "unauthorized");
   }
 
@@ -304,10 +342,7 @@ export class RoomDO extends DurableObject<Env> {
       attachment.role === "player" ? [tag, PLAYERS_TAG] : [tag],
     );
     server.serializeAttachment(attachment);
-    this.send(
-      server,
-      this.snapshotFor(attachment, () => this.results()),
-    );
+    this.sendSnapshot(server, attachment, this.sharedState());
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -390,7 +425,7 @@ export class RoomDO extends DurableObject<Env> {
       ...room,
       phase: {
         status: "playing",
-        game: { startedAt: now, draws: [], pending: null },
+        game: { startedAt: now, draws: [], pending: null, judgedDraws: 0 },
       },
     });
     await this.ctx.storage.setAlarm(now + PLAYED_ROOM_TTL_MS);
@@ -399,6 +434,8 @@ export class RoomDO extends DurableObject<Env> {
 
   /** 抽選する。番号はホストにだけ送り、プレイヤーには抽選中であることだけを知らせる */
   private async draw(): Promise<void> {
+    // 放置の判定の区切りは、押された時点で公開済みだった番号まで（この後で公開する番号は、まだ開ける機会がない）
+    const judgedDraws = this.publishedCount();
     // 前の番号が公開されないまま押されたら、先に公開する（decisions.md「演出と音」）
     await this.publishPending();
     const room = this.room;
@@ -410,7 +447,9 @@ export class RoomDO extends DurableObject<Env> {
       secureRandomIndex,
     );
     if (next === null) return;
-    await this.saveGame(room, { ...game, pending: next });
+    await this.saveGame(room, { ...game, pending: next, judgedDraws });
+    // 放置しているかどうかが変わるので、ランキングを送り直す
+    this.scheduleRanking();
     this.sendToHost({ type: "drawStarted", number: next });
     this.sendToPlayers({ type: "drawing" });
   }
@@ -431,18 +470,32 @@ export class RoomDO extends DurableObject<Env> {
       pending: null,
     });
     this.sendToPlayers({ type: "numberPublished", number: n });
+    // 残りの番号の数が変わり、ランキングの期待抽選回数が変わる
+    this.scheduleRanking();
   }
 
   /** ゲームを終える（公開待ちの番号があれば先に公開する）。全員に結果を送る */
   private async finish(now: number): Promise<void> {
+    // 放置の判定の区切りは、終了が押された時点で公開済みだった番号まで（抽選ボタンと同じ）
+    const judgedDraws = this.publishedCount();
     await this.publishPending();
     const room = this.room;
     if (room?.phase.status !== "playing") return;
     await this.saveRoom({
       ...room,
-      phase: { status: "finished", game: room.phase.game, endedAt: now },
+      phase: {
+        status: "finished",
+        game: { ...room.phase.game, judgedDraws },
+        endedAt: now,
+      },
     });
     this.sendSnapshots();
+  }
+
+  /** 公開済みの番号の数（ゲーム中でなければ 0） */
+  private publishedCount(): number {
+    const phase = this.room?.phase;
+    return phase?.status === "playing" ? phase.game.draws.length : 0;
   }
 
   /** プレイヤーがマスを開けた */
@@ -479,6 +532,7 @@ export class RoomDO extends DurableObject<Env> {
       ...player,
       opened,
       prizeRound: wonNow ? round : player.prizeRound,
+      lastOpenDraws: game.draws.length,
     });
     // 景品を取った後の知らせは、ホスト画面には流さない（取った人のリーチやビンゴは、もう会場に関係しないため）
     if (event !== null && !alreadyWon) {
@@ -492,7 +546,9 @@ export class RoomDO extends DurableObject<Env> {
     // 全員の順位が確定したら、ゲームを終える（decisions.md「ゲーム終了」）
     if (wonNow && this.activePlayers().every((p) => p.prizeRound !== null)) {
       await this.finish(now);
+      return;
     }
+    this.scheduleRanking();
   }
 
   private async saveGame(room: RoomRecord, game: GameRecord): Promise<void> {
@@ -517,12 +573,114 @@ export class RoomDO extends DurableObject<Env> {
       active.every((p) => p.prizeRound !== null)
     ) {
       await this.finish(Date.now());
+      return;
+    }
+    this.scheduleRanking();
+  }
+
+  // ---- ランキング ----
+
+  /** 開けたマスの形から、期待抽選回数を比べる整数を求める（同じ形は覚えておいて使い回す） */
+  private keyOf(prizeLines: number, opened: CellMask): ExpectedKey | null {
+    const room = this.room;
+    if (room === null) throw new Error("ルームがありません");
+    const cached = this.keys.get(opened);
+    if (cached !== undefined) return cached;
+    const key = expectedKey(room.rule.layout, prizeLines, opened);
+    this.keys.set(opened, key);
+    return key;
+  }
+
+  /** 今の順位（ゲーム中と終了後だけ） */
+  private standings(): Standings {
+    const room = this.room;
+    if (room === null || room.phase.status === "lobby") {
+      throw new Error("ゲームが始まっていません");
+    }
+    const win = room.rule.win;
+    // 逆ビンゴは始められないので、ここには来ない（手順5で作る）
+    if (win.type !== "bingo")
+      throw new Error("逆ビンゴの順位はまだ作っていません");
+    const game = room.phase.game;
+    return standingsOf(
+      this.activePlayers(),
+      game.draws,
+      game.judgedDraws,
+      (opened) => this.keyOf(win.prizeLines, opened),
+    );
+  }
+
+  /**
+   * ランキングを送る。前回から RANKING_INTERVAL_MS たっていればすぐ送り、たっていなければ、その時刻に送るタイマーをかける
+   * （送り残しの後追い。Alarm はルームを消す予約に使っているので、普通のタイマーで行う。decisions.md 手順4）
+   */
+  private scheduleRanking(): void {
+    if (this.rankingTimer !== null) return;
+    const wait = this.rankingSentAt + RANKING_INTERVAL_MS - Date.now();
+    if (wait <= 0) {
+      this.sendRanking();
+      return;
+    }
+    this.rankingTimer = setTimeout(() => {
+      this.rankingTimer = null;
+      this.sendRanking();
+    }, wait);
+  }
+
+  /** ホストにランキングを、プレイヤーに本人の順位を送る（前回と同じなら送らない） */
+  private sendRanking(): void {
+    const room = this.room;
+    if (room?.phase.status !== "playing") return;
+    this.rankingSentAt = Date.now();
+    const standings = this.standings();
+    const ranking = rankingMessage(this.hostRanking(standings));
+    if (ranking !== this.sentRanking) {
+      for (const ws of this.ctx.getWebSockets(tagOf({ role: "host" }))) {
+        this.sendText(ws, ranking);
+      }
+      this.sentRanking = ranking;
+    }
+    const byPlayer = playerStandings(standings);
+    for (const ws of this.ctx.getWebSockets(PLAYERS_TAG)) {
+      const attachment = Attachment.safeParse(ws.deserializeAttachment());
+      if (!attachment.success || attachment.data.role !== "player") continue;
+      const id = attachment.data.id;
+      const standing = byPlayer.get(id);
+      if (standing === undefined) continue;
+      const text = standingMessage(standing);
+      if (this.sentStandings.get(id) === text) continue;
+      this.sendText(ws, text);
+      this.sentStandings.set(id, text);
     }
   }
 
-  /** 結果（外されていない参加者の並び） */
-  private results(): Results {
-    return rankResults(this.activePlayers());
+  /** ホスト画面のランキング（期待抽選回数は、公開済みの番号を除いた残りの数で計算する） */
+  private hostRanking(standings: Standings): HostRanking {
+    const room = this.room;
+    if (room === null || room.phase.status === "lobby") {
+      throw new Error("ゲームが始まっていません");
+    }
+    const remaining =
+      LAYOUTS[room.rule.layout].maxNumber - room.phase.game.draws.length;
+    return hostRanking(standings, room.rule.layout, remaining);
+  }
+
+  /** 全員に共通の値（順位と結果）を、最初に要ったときに1回だけ作る入れ物 */
+  private sharedState(): SharedState {
+    let standings: Standings | null = null;
+    let byPlayer: Map<PlayerId, PlayerStanding> | null = null;
+    let results: Results | null = null;
+    const shared: SharedState = {
+      standings: () => (standings ??= this.standings()),
+      standingOf: (id) => {
+        byPlayer ??= playerStandings(shared.standings());
+        const standing = byPlayer.get(id);
+        if (standing === undefined) throw new Error("参加者がいません");
+        return standing;
+      },
+      results: () => (results ??= rankResults(shared.standings())),
+    };
+    return shared;
   }
 
   /** 外されていない参加者（参加した順） */
@@ -556,12 +714,34 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   /**
-   * その接続に送る全体の状態。results は結果を作る関数（全員に送り直すときに1回だけ作って使い回すため、
-   * 呼ぶ側が渡す。結果を含むのはゲームの終了後だけ）
+   * その接続に全体の状態を送る。shared は全員に共通の値（全員に送り直すときに1回だけ作って使い回すため、呼ぶ側が渡す）。
+   * ゲーム中は、送った順位を覚えておく（同じ順位を、ランキングを送るときに送り直さないため）
    */
+  private sendSnapshot(
+    ws: WebSocket,
+    attachment: Attachment,
+    shared: SharedState,
+  ): void {
+    const message = this.snapshotFor(attachment, shared);
+    this.send(ws, message);
+    if (message.type === "hostSnapshot" && message.phase.status === "playing") {
+      this.sentRanking = rankingMessage(message.phase.ranking);
+    }
+    if (
+      message.type === "playerSnapshot" &&
+      message.phase.status === "playing"
+    ) {
+      this.sentStandings.set(
+        message.me.id,
+        standingMessage(message.phase.standing),
+      );
+    }
+  }
+
+  /** その接続に送る全体の状態 */
   private snapshotFor(
     attachment: Attachment,
-    results: () => Results,
+    shared: SharedState,
   ): ServerMessage {
     const room = this.room;
     if (room === null) throw new Error("ルームがありません");
@@ -572,7 +752,7 @@ export class RoomDO extends DurableObject<Env> {
           room: profileOf(room),
           players: this.activePlayers().map(summary),
           maxPlayers: room.maxPlayers,
-          phase: this.hostPhase(room, results),
+          phase: this.hostPhase(room, shared),
         };
       case "player": {
         const player = this.players.get(attachment.id);
@@ -581,13 +761,13 @@ export class RoomDO extends DurableObject<Env> {
           type: "playerSnapshot",
           room: profileOf(room),
           me: { id: player.id, name: player.name, card: player.card },
-          phase: this.playerPhase(room, player, results),
+          phase: this.playerPhase(room, player, shared),
         };
       }
     }
   }
 
-  private hostPhase(room: RoomRecord, results: () => Results): HostPhase {
+  private hostPhase(room: RoomRecord, shared: SharedState): HostPhase {
     const phase = room.phase;
     switch (phase.status) {
       case "lobby":
@@ -599,12 +779,13 @@ export class RoomDO extends DurableObject<Env> {
           prizeWinners: this.activePlayers().filter(
             (p) => p.prizeRound !== null,
           ).length,
+          ranking: this.hostRanking(shared.standings()),
         };
       case "finished":
         return {
           status: "finished",
           draws: phase.game.draws,
-          results: results(),
+          results: shared.results(),
         };
     }
   }
@@ -612,7 +793,7 @@ export class RoomDO extends DurableObject<Env> {
   private playerPhase(
     room: RoomRecord,
     player: PlayerRecord,
-    results: () => Results,
+    shared: SharedState,
   ): PlayerPhase {
     const phase = room.phase;
     switch (phase.status) {
@@ -625,27 +806,33 @@ export class RoomDO extends DurableObject<Env> {
           drawing: phase.game.pending !== null,
           opened: player.opened,
           prizeRound: player.prizeRound,
+          standing: shared.standingOf(player.id),
         };
       case "finished":
         return {
           status: "finished",
           draws: phase.game.draws,
           opened: player.opened,
-          results: results(),
+          results: shared.results(),
         };
     }
   }
 
   /** つながっている全員に、全体の状態を送り直す（ゲームの開始と終了のとき） */
   private sendSnapshots(): void {
-    // 結果は全員に同じものを送るので、最初に要ったときに1回だけ作る
-    let cached: Results | null = null;
-    const results = () => (cached ??= this.results());
+    // 順位と結果は全員に同じものを使うので、最初に要ったときに1回だけ作る
+    const shared = this.sharedState();
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = Attachment.safeParse(ws.deserializeAttachment());
-      if (attachment.success) {
-        this.send(ws, this.snapshotFor(attachment.data, results));
+      if (!attachment.success) continue;
+      // 外された人の接続が閉じ終わる前に残っていても、送らない（順位の計算に入っていない人なので）
+      if (
+        attachment.data.role === "player" &&
+        this.players.get(attachment.data.id)?.kicked !== false
+      ) {
+        continue;
       }
+      this.sendSnapshot(ws, attachment.data, shared);
     }
   }
 
@@ -663,8 +850,13 @@ export class RoomDO extends DurableObject<Env> {
   }
 
   private send(ws: WebSocket, message: ServerMessage): void {
+    this.sendText(ws, JSON.stringify(message));
+  }
+
+  /** 文字列にしたメッセージを送る（同じ文字列を何人にも送るときや、送ったものと比べるときに使う） */
+  private sendText(ws: WebSocket, text: string): void {
     try {
-      ws.send(JSON.stringify(message));
+      ws.send(text);
     } catch {
       // 閉じかけの接続に送ろうとしたときは何もしない
     }
@@ -692,6 +884,18 @@ export class RoomDO extends DurableObject<Env> {
 /** 接続に付ける目印（同じ人の接続を探すのに使う） */
 function tagOf(attachment: Attachment): string {
   return attachment.role === "host" ? "host" : `player:${attachment.id}`;
+}
+
+/** ホストに送るランキングのメッセージ（送ったものと比べられるよう、文字列にする） */
+function rankingMessage(ranking: HostRanking): string {
+  const message: ServerMessage = { type: "ranking", ranking };
+  return JSON.stringify(message);
+}
+
+/** プレイヤーに送る順位のメッセージ（送ったものと比べられるよう、文字列にする） */
+function standingMessage(standing: PlayerStanding): string {
+  const message: ServerMessage = { type: "standing", standing };
+  return JSON.stringify(message);
 }
 
 function profileOf(room: RoomRecord): RoomProfile {

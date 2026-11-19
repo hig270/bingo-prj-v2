@@ -63,6 +63,9 @@ function hostWith(
   });
 }
 
+/** 順位を争っている人がいないときのランキング */
+const noRanking = { rows: [], moreTied: 0, contenders: 0 };
+
 /** 9マスのカード（1 行目は 1・16・31、2 行目は 2・17・32、3 行目は 3・18・33） */
 const card = Card.parse({
   layout: "3x3",
@@ -87,6 +90,7 @@ function playerPlaying(draws: number[], drawing = false): PlayerView {
       drawing,
       opened: initialMask("3x3"),
       prizeRound: null,
+      standing: { status: "contending", rank: 1, of: 2 },
     },
   });
   if (state.view !== "player") throw new Error("プレイヤーの状態にならない");
@@ -159,6 +163,7 @@ describe("reduceRoom（ホストのゲーム中）", () => {
     status: "playing",
     draws: [n(5)],
     prizeWinners: 0,
+    ranking: noRanking,
   });
 
   it("抽選した番号は、発表した瞬間に履歴に足し、片付けが終わったら演出の番号を消す", () => {
@@ -199,7 +204,12 @@ describe("reduceRoom（ホストのゲーム中）", () => {
       room,
       players: [taro, hana],
       maxPlayers: 1000,
-      phase: { status: "playing", draws: [n(5), n(9)], prizeWinners: 0 },
+      phase: {
+        status: "playing",
+        draws: [n(5), n(9)],
+        prizeWinners: 0,
+        ranking: noRanking,
+      },
     });
     expect(again).toMatchObject({
       game: { requesting: false, current: null, draws: [n(5), n(9)] },
@@ -261,7 +271,7 @@ describe("reduceRoom（ホストのゲーム中）", () => {
   it("景品の数に達した瞬間に、終了の確認を1回だけ出す", () => {
     const withPrizes = hostWith(
       [taro, hana],
-      { status: "playing", draws: [n(5)], prizeWinners: 0 },
+      { status: "playing", draws: [n(5)], prizeWinners: 0, ranking: noRanking },
       { ...room, prizes: PrizeCount.parse(1) },
     );
     const prize: RoomAction = {
@@ -279,6 +289,27 @@ describe("reduceRoom（ホストのゲーム中）", () => {
     });
   });
 
+  it("ランキングが届いたら差し替える", () => {
+    const ranking = {
+      rows: [
+        {
+          id: taro.id,
+          name: taro.name,
+          rank: 1,
+          expected: 12.3,
+          lines: 0,
+          reach: 1,
+          opened: 3,
+        },
+      ],
+      moreTied: 0,
+      contenders: 2,
+    };
+    expect(apply(playing, { type: "ranking", ranking })).toMatchObject({
+      game: { ranking },
+    });
+  });
+
   it("景品の数が決まっていなければ、終了の確認は出さない", () => {
     const next = apply(playing, {
       type: "progress",
@@ -291,6 +322,14 @@ describe("reduceRoom（ホストのゲーム中）", () => {
 });
 
 describe("reduceRoom（プレイヤーのゲーム中）", () => {
+  it("本人の順位が届いたら差し替える", () => {
+    const next = reduceRoom(playerPlaying([1]), {
+      type: "standing",
+      standing: { status: "idle" },
+    });
+    expect(next).toMatchObject({ game: { standing: { status: "idle" } } });
+  });
+
   it("抽選中になり、番号が公開されたら履歴に足して抽選中を終える", () => {
     const drawing = reduceRoom(playerPlaying([1]), { type: "drawing" });
     expect(drawing).toMatchObject({ game: { drawing: true } });

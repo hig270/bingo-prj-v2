@@ -4,7 +4,7 @@ import { evictAllDurableObjects, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { ROOM_KEY, RoomRecord } from "../src/records";
-import { PLAYED_ROOM_TTL_MS } from "../src/room";
+import { PLAYED_ROOM_TTL_MS, RANKING_INTERVAL_MS } from "../src/room";
 import {
   call,
   connect,
@@ -167,10 +167,15 @@ describe("ゲームの開始", () => {
   it("ホストが始めると、全員に開始後の状態が届き、データを消す予約が 7 日後になる", async () => {
     const before = Date.now();
     const { roomId, host, players } = await playing(["たろう"]);
-    expect(last(host, "hostSnapshot")?.phase).toEqual({
+    expect(last(host, "hostSnapshot")?.phase).toMatchObject({
       status: "playing",
       draws: [],
       prizeWinners: 0,
+      ranking: {
+        rows: [{ name: "たろう", rank: 1, lines: 0, reach: 0, opened: 0 }],
+        moreTied: 0,
+        contenders: 1,
+      },
     });
     expect(last(first(players).conn, "playerSnapshot")?.phase).toEqual({
       status: "playing",
@@ -178,6 +183,7 @@ describe("ゲームの開始", () => {
       drawing: false,
       opened: 0,
       prizeRound: null,
+      standing: { status: "contending", rank: 1, of: 1 },
     });
     const alarm = await runInDurableObject(
       env.ROOM.getByName(roomId),
@@ -317,7 +323,12 @@ describe("マスを開ける", () => {
     expect(finished).toMatchObject({
       status: "finished",
       opened: maskOf([0, 1, 2]),
-      results: [{ name: "たろう", prize: { round, rank: 1 } }],
+      results: {
+        entries: [
+          { name: "たろう", standing: { type: "prize", round, rank: 1 } },
+        ],
+        lowest: null,
+      },
     });
   });
 
@@ -347,11 +358,125 @@ describe("マスを開ける", () => {
       "終了",
     );
     expect(last(host, "hostSnapshot")?.phase).toMatchObject({
-      results: [
-        { name: "たろう", prize: { round: drawnCount + 1, rank: 1 } },
-        { name: "はなこ", prize: null },
-      ],
+      results: {
+        entries: [
+          {
+            name: "たろう",
+            standing: { type: "prize", round: drawnCount + 1, rank: 1 },
+          },
+          // 一度も開けないまま、自分の番号が全部出ているので放置
+          { name: "はなこ", standing: { type: "idle" } },
+        ],
+        lowest: null,
+      },
     });
+  });
+});
+
+describe("ランキング", () => {
+  it("マスを開けると、ホストにランキングを、本人に順位を送る", async () => {
+    const { host, players } = await playingWithDraws(
+      ["たろう", "はなこ"],
+      ([card]) =>
+        card?.cells.slice(0, 1).flatMap((n) => (n === null ? [] : [n])) ?? [],
+    );
+    const [taro, hana] = players;
+    if (taro === undefined || hana === undefined) throw new Error("参加者");
+    send(taro.conn, { type: "open", cell: 0 });
+    await until(
+      () => last(host, "ranking")?.ranking.rows[0]?.name === "たろう",
+      "ランキング",
+    );
+    expect(last(host, "ranking")?.ranking).toMatchObject({
+      rows: [
+        { name: "たろう", rank: 1, opened: 1 },
+        { name: "はなこ", rank: 2, opened: 0 },
+      ],
+      contenders: 2,
+    });
+    await until(
+      () => last(hana.conn, "standing")?.standing.status === "contending",
+      "はなこの順位",
+    );
+    expect(last(hana.conn, "standing")?.standing).toEqual({
+      status: "contending",
+      rank: 2,
+      of: 2,
+    });
+    // たろうの順位は1位のまま変わらないので、送り直さない
+    expect(countOf(taro.conn, "standing")).toBe(0);
+  });
+
+  it("続けて開けても、送るのは 0.5 秒に 1 回までで、最後の変化も後から届く", async () => {
+    const { host, players } = await playingWithDraws(["たろう"], () =>
+      drawPool("3x3"),
+    );
+    const taro = first(players).conn;
+    send(taro, { type: "open", cell: 0 });
+    send(taro, { type: "open", cell: 4 });
+    await until(() => countOf(host, "ranking") >= 1, "1回目");
+    await settle();
+    // 2 つ目の変化は、すぐには届かない
+    expect(countOf(host, "ranking")).toBe(1);
+    await until(
+      () => last(host, "ranking")?.ranking.rows[0]?.opened === 2,
+      "後追い",
+    );
+    expect(countOf(host, "ranking")).toBe(2);
+  });
+
+  it("自分の番号が2個出たまま、次の抽選が押されても開けていなければ放置になり、開けると戻る", async () => {
+    // はなこのカードの番号を 2 個だけ公開済みにする
+    const { host, players } = await playingWithDraws(
+      ["たろう", "はなこ"],
+      ([, card]) =>
+        (card?.cells ?? []).flatMap((n) => (n === null ? [] : [n])).slice(0, 2),
+    );
+    const hana = players[1];
+    if (hana === undefined) throw new Error("参加者");
+    send(host, { type: "draw" });
+    await until(
+      () => last(hana.conn, "standing")?.standing.status === "idle",
+      "放置",
+    );
+    await until(
+      () => last(host, "ranking")?.ranking.contenders === 1,
+      "ランキングから外れる",
+    );
+    // 抽選中でも、公開済みの番号のマスは開けられる
+    send(hana.conn, { type: "open", cell: 0 });
+    await until(
+      () => last(hana.conn, "standing")?.standing.status === "contending",
+      "戻る",
+    );
+  });
+});
+
+describe("放置の判定の区切り", () => {
+  it("公開待ちの番号が残ったまま抽選が押されたとき、そこで公開した番号は放置の判定に数えない", async () => {
+    // 残りの番号を、はなこのカードの 3 個（マス 6〜8）だけにする
+    const { host, players, cards } = await playingWithDraws(
+      ["たろう", "はなこ"],
+      ([, card]) => {
+        const rest = new Set(card?.cells.slice(6));
+        return drawPool("3x3").filter((n) => !rest.has(n));
+      },
+    );
+    const hana = players[1]?.conn;
+    if (hana === undefined || cards[1] === undefined) throw new Error("参加者");
+    // はなこは公開済みのマスを開けて、数え直しにする
+    send(hana, { type: "open", cell: 0 });
+    // 1 個目: 公開する（はなこは開けない）
+    await drawAndShow(host, [hana]);
+    // 2 個目: 抽選したが、演出を見せ終わらないうちに次の抽選が押された
+    send(host, { type: "draw" });
+    await until(() => countOf(host, "drawStarted") === 2, "2 回目の抽選");
+    send(host, { type: "draw" });
+    await until(() => countOf(host, "drawStarted") === 3, "3 回目の抽選");
+    // 2 個目は 3 回目の抽選を押した後に公開したので、はなこにはまだ開ける機会がなかった。
+    // 数えるのは 1 個目だけなので、放置にならない
+    await new Promise((r) => setTimeout(r, RANKING_INTERVAL_MS + 100));
+    expect(last(hana, "standing")?.standing.status).toBe("contending");
   });
 });
 
@@ -374,7 +499,11 @@ describe("ゲームの終了", () => {
       "終了",
     );
     expect(last(host, "hostSnapshot")?.phase).toMatchObject({
-      results: [{ name: "たろう", prize: { round: 45, rank: 1 } }],
+      results: {
+        entries: [
+          { name: "たろう", standing: { type: "prize", round: 45, rank: 1 } },
+        ],
+      },
     });
   });
 
@@ -390,14 +519,34 @@ describe("ゲームの終了", () => {
         "終了",
       );
       expect(last(conn, "numberPublished")?.number).toBe(n);
+      // 終了が押された時点では公開前の番号だったので、まだ開ける機会がなく、放置とはみなさない
       expect(last(conn, "playerSnapshot")?.phase).toMatchObject({
         draws: [n],
-        results: [
-          { name: "たろう", prize: null },
-          { name: "はなこ", prize: null },
-        ],
+        results: {
+          entries: [
+            { name: "たろう", standing: { type: "ranked", rank: 1 } },
+            { name: "はなこ", standing: { type: "ranked", rank: 1 } },
+          ],
+          lowest: { more: 0 },
+        },
       });
     }
+  });
+});
+
+describe("外された人の接続", () => {
+  it("外した直後に始めても、残りの全員に開始の状態が届く", async () => {
+    const { host, players } = await lobby(["たろう", "はなこ"]);
+    const hanaId = last(first(players.slice(1)).conn, "playerSnapshot")?.me.id;
+    // 外された人の接続が閉じ終わるのを待たずに始める
+    send(host, { type: "kick", playerId: hanaId });
+    send(host, { type: "start" });
+    await until(
+      () =>
+        last(host, "hostSnapshot")?.phase.status === "playing" &&
+        last(first(players).conn, "playerSnapshot")?.phase.status === "playing",
+      "開始の状態",
+    );
   });
 });
 

@@ -46,7 +46,15 @@ export function isOpen(mask: CellMask, cell: CellIndex): boolean {
 
 /** 開いているマスの数 */
 export function countOpen(mask: CellMask): number {
-  let rest: number = mask;
+  return countBits(mask);
+}
+
+/**
+ * 1 のビットの数（マスの集合の途中の計算で、CellMask の形を確かめずに数えるときに使う。
+ * 期待抽選回数の計算では 4096 通りの集合を数えるので、1つずつ確かめると遅くなる）
+ */
+export function countBits(bits: number): number {
+  let rest = bits;
   let count = 0;
   while (rest !== 0) {
     rest &= rest - 1; // 一番下の 1 のビットを消す

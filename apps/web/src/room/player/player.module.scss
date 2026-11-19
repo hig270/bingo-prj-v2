@@ -27,7 +27,23 @@
   margin: 0 auto;
 }
 
+// 見せるだけの小さいカード（結果画面の最下位のカードなど）
+.compact {
+  width: min(100%, 220px);
+  gap: 3px;
+
+  .cell {
+    font-size: var(--font-md);
+  }
+
+  .free {
+    font-size: var(--font-sm);
+  }
+}
+
 .cell {
+  display: grid;
+  place-items: center;
   aspect-ratio: 1;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -51,6 +67,26 @@
 
 .free {
   font-size: var(--font-md);
+}
+
+// 自分の情報（期待抽選回数・順位・ビンゴの進み具合）
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-sm);
+  margin: 0;
+  text-align: center;
+
+  dt {
+    color: var(--color-muted);
+    font-size: var(--font-sm);
+  }
+
+  dd {
+    margin: 0;
+    font-size: var(--font-lg);
+    font-weight: bold;
+  }
 }
 
 // マスを押したときの知らせ（数秒で消える）。消えても高さを保ち、カードが動かないようにする
