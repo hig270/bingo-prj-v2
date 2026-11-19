@@ -32,13 +32,16 @@ export type RoomSettings = z.infer<typeof RoomSettings>;
 export const RoomStatus = z.enum(["lobby", "playing", "finished"]);
 export type RoomStatus = z.infer<typeof RoomStatus>;
 
-/** 参加画面などに出す、ルームの公開情報 */
-export const RoomInfo = z.object({
+/** ルームの設定のうち、画面に見せるもの（進み具合を除く） */
+export const RoomProfile = z.object({
   name: RoomName,
   rule: GameRule,
   prizes: PrizeCount.nullable(),
-  status: RoomStatus,
 });
+export type RoomProfile = z.infer<typeof RoomProfile>;
+
+/** 参加画面などに出す、ルームの公開情報 */
+export const RoomInfo = RoomProfile.extend({ status: RoomStatus });
 export type RoomInfo = z.infer<typeof RoomInfo>;
 
 /** 参加者の公開情報（ホストの募集画面の一覧に出す） */
@@ -105,3 +108,13 @@ export const JoinResponse = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(false), error: JoinError }),
 ]);
 export type JoinResponse = z.infer<typeof JoinResponse>;
+
+/**
+ * POST /r/<ルームID>/api/extend の応答。参加の記録（Cookie）の期限を延ばしたかどうか
+ * （ゲームの開始より前に発行した記録だけを延ばす。decisions.md「プレイヤーの再接続」）
+ */
+export const ExtendResponse = z.object({
+  host: z.boolean(),
+  player: z.boolean(),
+});
+export type ExtendResponse = z.infer<typeof ExtendResponse>;

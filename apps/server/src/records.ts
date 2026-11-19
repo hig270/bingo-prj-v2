@@ -1,10 +1,10 @@
-import { Card, GameRule } from "@bingo/game";
+import { BingoNumber, Card, CellMask, GameRule } from "@bingo/game";
 import {
+  DrawRound,
   PlayerId,
   PlayerName,
   PrizeCount,
   RoomName,
-  RoomStatus,
 } from "@bingo/protocol";
 import { z } from "zod";
 
@@ -18,12 +18,39 @@ const Session = z.object({
 });
 export type Session = z.infer<typeof Session>;
 
+/** ゲームの進み具合（ゲームを始めてから） */
+const GameRecord = z.object({
+  /** 始めた時刻（UNIX 時刻のミリ秒） */
+  startedAt: z.number(),
+  /** スマホに公開した抽選番号（抽選した順） */
+  draws: z.array(BingoNumber),
+  /**
+   * 抽選したが、まだスマホに公開していない番号（ホスト画面で演出を流している間）。無ければ null。
+   * 公開したら draws の最後に移す
+   */
+  pending: BingoNumber.nullable(),
+});
+export type GameRecord = z.infer<typeof GameRecord>;
+
+/** ルームの進み具合。ゲームの記録は、始めてからだけ持つ */
+const Phase = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("lobby") }),
+  z.object({ status: z.literal("playing"), game: GameRecord }),
+  z.object({
+    status: z.literal("finished"),
+    game: GameRecord,
+    /** 終えた時刻（UNIX 時刻のミリ秒） */
+    endedAt: z.number(),
+  }),
+]);
+export type Phase = z.infer<typeof Phase>;
+
 /** ルームそのもの（キー: "room"） */
 export const RoomRecord = z.object({
   name: RoomName,
   rule: GameRule,
   prizes: PrizeCount.nullable(),
-  status: RoomStatus,
+  phase: Phase,
   maxPlayers: z.number().int().positive(),
   createdAt: z.number(),
   host: Session,
@@ -38,6 +65,10 @@ export const PlayerRecord = z.object({
   nameKey: z.string(),
   session: Session,
   card: Card,
+  /** 開けたマス（FREE を含む。参加したときは FREE だけ） */
+  opened: CellMask,
+  /** 景品獲得ラインに達した抽選回。まだなら null */
+  prizeRound: DrawRound.nullable(),
   /** ホストに外されたか（外された人も記録は残し、同じ端末からの参加し直しを断る） */
   kicked: z.boolean(),
   joinedAt: z.number(),

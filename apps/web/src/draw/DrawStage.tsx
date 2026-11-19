@@ -18,7 +18,7 @@ import type { DrawCue, DrawTiming } from "./timing";
 
 export interface PlayOptions {
   readonly timing: DrawTiming;
-  /** 番号が見えた瞬間に呼ばれる（プレイヤーのスマホへの公開をここに合わせる） */
+  /** 番号が見えた瞬間に呼ばれる（ホスト画面の抽選履歴に足す） */
   readonly onReveal?: (n: BingoNumber) => void;
   /** 音を鳴らすきっかけ（回し始め・飛び出し・受け皿に落ちる・発表） */
   readonly onCue?: (cue: DrawCue) => void;
