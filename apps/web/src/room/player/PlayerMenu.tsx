@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { ruleSummary } from "../../rules/summary";
 import ui from "../../ui/ui.module.scss";
 import { DrawHistory } from "../Ball";
+import { RETURN_HINT } from "../return-hint";
 
 /**
- * プレイヤーのメニュー（ルーム名、ルールの確認、抽選履歴の確認）。
+ * プレイヤーのメニュー（ルーム名、ルールの確認、抽選履歴の確認、閉じても戻れることの案内）。
  * 「抽選履歴を確認」を押すと、同じダイアログの中で履歴に切り替わる
  */
 export function PlayerMenu({
@@ -57,6 +58,7 @@ export function PlayerMenu({
             <>
               <h2 className={ui.subtitle}>{room.name}</h2>
               <p>ルール: {ruleSummary(room.rule)}</p>
+              <p className={ui.muted}>{RETURN_HINT}</p>
               <div>
                 <button
                   type="button"

@@ -80,6 +80,30 @@
   justify-items: center;
 }
 
+// ゲーム画面の情報の欄の見出し。ルーム名と、隅に小さく出す参加用の QR コードを横に並べる
+.infoHeader {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.gameQr {
+  display: grid;
+  flex-shrink: 0;
+  gap: var(--space-xs);
+  justify-items: center;
+  width: 140px;
+  margin: 0;
+  text-align: center;
+  font-size: var(--font-sm);
+}
+
+.gameQrCode {
+  width: 100%;
+  height: auto;
+}
+
 .stats {
   display: flex;
   flex-wrap: wrap;

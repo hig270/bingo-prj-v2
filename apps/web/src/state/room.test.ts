@@ -7,6 +7,7 @@ import {
   maskOf,
 } from "@bingo/game";
 import {
+  DrawRound,
   PlayerId,
   PlayerName,
   PrizeCount,
@@ -20,6 +21,7 @@ import {
   initialRoomState,
   reduceRoom,
   tapCell,
+  unsentCells,
   type PlayerView,
   type RoomAction,
   type RoomState,
@@ -376,6 +378,89 @@ describe("reduceRoom（プレイヤーのゲーム中）", () => {
     expect(
       reduceRoom(opened, { type: "cells", opened: initialMask("3x3") }),
     ).toMatchObject({ game: { opened: initialMask("3x3") } });
+  });
+});
+
+type PlayerSnapshot = Extract<ServerMessage, { type: "playerSnapshot" }>;
+
+/** つなぎ直したときにサーバーから届く、プレイヤーの全体の状態（9マスのカード、開けたマスは opened） */
+function snapshotOf(
+  draws: number[],
+  opened: number[],
+  prizeRound: number | null = null,
+): PlayerSnapshot {
+  return {
+    type: "playerSnapshot",
+    room: speed,
+    me: { ...taro, card },
+    phase: {
+      status: "playing",
+      draws: draws.map(n),
+      drawing: false,
+      opened: maskOf(opened),
+      prizeRound: prizeRound === null ? null : DrawRound.parse(prizeRound),
+      standing: { status: "contending", rank: 1, of: 2 },
+    },
+  };
+}
+
+describe("つなぎ直したときの、届かなかったマス（decisions.md 手順5の (a) の (5)）", () => {
+  it("手元で開けたのにサーバーの記録にないマスを返し、全体の状態に重ねて開いたままにする", () => {
+    // 1・16 を開けたが、16 は届かなかった。その間に 2 が公開された
+    const before = withOpened(playerPlaying([1, 16]), [0, 1]);
+    const snapshot = snapshotOf([1, 16, 2], [0]);
+    expect(unsentCells(before, snapshot)).toEqual([cell(1)]);
+    expect(reduceRoom(before, snapshot)).toMatchObject({
+      game: { draws: [n(1), n(16), n(2)], opened: maskOf([0, 1]) },
+    });
+  });
+
+  it("全部届いていれば何も返さず、サーバーの記録をそのまま使う", () => {
+    const before = withOpened(playerPlaying([1, 16]), [0, 1]);
+    const snapshot = snapshotOf([1, 16], [0, 1, 3]);
+    expect(unsentCells(before, snapshot)).toEqual([]);
+    expect(reduceRoom(before, snapshot)).toMatchObject({
+      game: { opened: maskOf([0, 1, 3]) },
+    });
+  });
+
+  it("景品を取ったのが届かなかったマスなら、手元で数えた抽選回を残す", () => {
+    const before = apply(
+      playerPlaying([1, 16, 31]),
+      { type: "local/open", cell: cell(0) },
+      { type: "local/open", cell: cell(1) },
+      { type: "local/open", cell: cell(2) },
+    );
+    const snapshot = snapshotOf([1, 16, 31, 2], [0, 1]);
+    expect(unsentCells(before, snapshot)).toEqual([cell(2)]);
+    expect(reduceRoom(before, snapshot)).toMatchObject({
+      game: { opened: maskOf([0, 1, 2]), prizeRound: 3 },
+    });
+  });
+
+  it("再読み込みした後（手元の状態がない）や、ゲームが終わっていたら何も返さない", () => {
+    const snapshot = snapshotOf([1, 16], [0]);
+    expect(unsentCells(initialRoomState, snapshot)).toEqual([]);
+    const before = withOpened(playerPlaying([1, 16]), [0, 1]);
+    const finished: PlayerSnapshot = {
+      ...snapshot,
+      phase: {
+        status: "finished",
+        draws: [n(1), n(16)],
+        opened: maskOf([0]),
+        results: { entries: [], lowest: null },
+      },
+    };
+    expect(unsentCells(before, finished)).toEqual([]);
+    expect(reduceRoom(before, finished)).toMatchObject({
+      game: { status: "finished", opened: maskOf([0]) },
+    });
+  });
+
+  it("サーバーの記録で公開されていない番号のマスは返さない（サーバーが受け付けないため）", () => {
+    const before = withOpened(playerPlaying([1, 16]), [0, 1]);
+    const snapshot = snapshotOf([1], [0]);
+    expect(unsentCells(before, snapshot)).toEqual([]);
   });
 });
 

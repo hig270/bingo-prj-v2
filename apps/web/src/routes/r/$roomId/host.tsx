@@ -10,6 +10,7 @@ import { HostLobby } from "../../../room/host/HostLobby";
 import { LoadProblem } from "../../../room/LoadProblem";
 import { ResultsView } from "../../../room/ResultsView";
 import { useExtendSession } from "../../../room/useExtendSession";
+import { useWakeLock } from "../../../room/useWakeLock";
 import { DrawSound } from "../../../sound/draw-sound";
 import { useRoomStore } from "../../../state/room-store";
 import ui from "../../../ui/ui.module.scss";
@@ -51,6 +52,13 @@ function HostRoom({ roomId }: { readonly roomId: RoomId }) {
     roomId,
     state.view === "host" && state.game.status === "playing",
   );
+  // 募集からゲームの終わりまで、画面を消さない（募集中に消えると、会場の人が QR コードを読めなくなる。
+  // decisions.md 手順5の (a) の (1)）。接続が終わった（別の画面で開かれた、など）ら外す
+  useWakeLock(
+    status.kind !== "ended" &&
+      state.view === "host" &&
+      state.game.status !== "finished",
+  );
   const connected = status.kind === "open";
 
   return (
@@ -74,6 +82,7 @@ function HostRoom({ roomId }: { readonly roomId: RoomId }) {
             case "playing":
               return (
                 <HostGame
+                  roomId={roomId}
                   view={state}
                   game={game}
                   connected={connected}

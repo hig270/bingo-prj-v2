@@ -1,5 +1,5 @@
 import { LAYOUTS, type BingoNumber } from "@bingo/game";
-import type { ClientMessage } from "@bingo/protocol";
+import type { ClientMessage, RoomId } from "@bingo/protocol";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { DrawStage, type DrawStageHandle } from "../../draw/DrawStage";
 import { DEFAULT_TIMING } from "../../draw/timing";
@@ -13,6 +13,7 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import ui from "../../ui/ui.module.scss";
 import { DrawHistory } from "../Ball";
 import styles from "./host.module.scss";
+import { JoinQr } from "./JoinQr";
 import { NoticeBanner } from "./NoticeBanner";
 import { PickedCardsView } from "./PickedCards";
 import { RankingTable } from "./RankingTable";
@@ -21,6 +22,7 @@ type Playing = Extract<HostGameState, { status: "playing" }>;
 
 /** ホストのゲーム画面（操作と投影を兼ねる） */
 export function HostGame({
+  roomId,
   view,
   game,
   connected,
@@ -28,6 +30,7 @@ export function HostGame({
   dispatch,
   sound,
 }: {
+  readonly roomId: RoomId;
   readonly view: HostView;
   readonly game: Playing;
   readonly connected: boolean;
@@ -151,7 +154,17 @@ export function HostGame({
           )}
         </section>
         <section className={ui.card}>
-          <h1 className={ui.title}>{view.room.name}</h1>
+          <div className={styles.infoHeader}>
+            <h1 className={ui.title}>{view.room.name}</h1>
+            {/* 画面を閉じたプレイヤーが読み直して戻るため、ゲーム中も小さく出し続ける
+                （抽選の演出の外に置く。decisions.md 手順5の (a) の (6)） */}
+            <figure className={styles.gameQr}>
+              <JoinQr roomId={roomId} className={styles.gameQrCode} />
+              <figcaption className={ui.muted}>
+                画面を閉じた人はここから戻れます
+              </figcaption>
+            </figure>
+          </div>
           <p className={styles.stats}>
             <span>参加 {view.players.length} 人</span>
             {prizes !== null && (

@@ -117,3 +117,10 @@
   font-size: var(--font-xxl);
   font-weight: bold;
 }
+
+// アプリの中のブラウザでの案内に出す URL。押すと全体が選ばれ、長押しでコピーしやすくする
+.copyUrl {
+  margin: 0;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
