@@ -161,7 +161,7 @@ export function HostGame({
             <figure className={styles.gameQr}>
               <JoinQr roomId={roomId} className={styles.gameQrCode} />
               <figcaption className={ui.muted}>
-                画面を閉じた人は、ここから戻れます
+                画面を閉じた人はここから戻れます
               </figcaption>
             </figure>
           </div>
