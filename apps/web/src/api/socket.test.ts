@@ -1,7 +1,9 @@
 import { CLOSE, PlayerId, type ServerMessage } from "@bingo/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CHECK_TIMEOUT_MS,
   CONNECT_TIMEOUT_MS,
+  ONLINE_SPREAD_MS,
   PING_INTERVAL_MS,
   PONG_TIMEOUT_MS,
   connectRoom,
@@ -44,7 +46,11 @@ class FakeSocket implements SocketLike {
   }
 }
 
-function setup() {
+/**
+ * random は、つなぎ直す時刻をずらす乱数。省くと 1 を返し、待ち時間がいつも上限いっぱいになる
+ * （待ち時間の延ばし方を、ずらしと分けて確かめるため）
+ */
+function setup(random: () => number = () => 1) {
   const sockets: FakeSocket[] = [];
   const statuses: SocketStatus[] = [];
   const messages: ServerMessage[] = [];
@@ -59,6 +65,7 @@ function setup() {
       sockets.push(socket);
       return socket;
     },
+    random,
   );
   const last = () => {
     const socket = sockets.at(-1);
@@ -245,6 +252,8 @@ describe("connectRoom", () => {
     expect(t.last().sent).toEqual([
       "ping",
       JSON.stringify({ type: "kick", playerId: "abcdefgh" }),
+      // 届いたかを確かめる ping
+      "ping",
     ]);
     t.connection.stop();
     expect(t.last().closedByClient).toBe(true);
@@ -252,6 +261,195 @@ describe("connectRoom", () => {
     expect(vi.getTimerCount()).toBe(0);
     t.last().serverClose(1006);
     vi.advanceTimersByTime(60_000);
+    expect(t.sockets).toHaveLength(1);
+  });
+
+  it("つなぎ直すまでの待ち時間は、上限までの乱数でずらす", () => {
+    const t = setup(() => 0.5);
+    t.last().open();
+    t.last().serverClose(1006);
+    vi.advanceTimersByTime(249);
+    expect(t.sockets).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("送った直後に確かめ、pong が返らなければ、待ち時間を短くしてつなぎ直す", () => {
+    const t = setup();
+    const first = t.last();
+    first.open();
+    first.receive("pong");
+    t.connection.send({ type: "kick", playerId: PlayerId.parse("abcdefgh") });
+    vi.advanceTimersByTime(CHECK_TIMEOUT_MS - 1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "open" });
+    vi.advanceTimersByTime(1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+    expect(first.closedByClient).toBe(true);
+  });
+
+  it("送った後の pong が返れば、つながったままにする", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive("pong");
+    t.connection.send({ type: "kick", playerId: PlayerId.parse("abcdefgh") });
+    t.last().receive("pong");
+    vi.advanceTimersByTime(PONG_TIMEOUT_MS);
+    expect(t.sockets).toHaveLength(1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "open" });
+  });
+
+  it("前に送った ping の pong だけが返っても、送った後の ping の pong を待つ", () => {
+    // pong は送った順に返る。1つ目の pong は、送ったメッセージが届いたことを示さない
+    const t = setup();
+    t.last().open();
+    t.connection.send({ type: "kick", playerId: PlayerId.parse("abcdefgh") });
+    t.last().receive("pong");
+    vi.advanceTimersByTime(CHECK_TIMEOUT_MS);
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+  });
+
+  it("ping が重なっても、それぞれの ping に決まった時間ずつ待つ（往復に時間がかかる回線）", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive("pong");
+    const kick = {
+      type: "kick",
+      playerId: PlayerId.parse("abcdefgh"),
+    } as const;
+    // 0 秒に1つ目、1.5 秒に2つ目を送り、どちらも pong が返るのに 2 秒かかる
+    t.connection.send(kick);
+    vi.advanceTimersByTime(1_500);
+    t.connection.send(kick);
+    vi.advanceTimersByTime(500);
+    t.last().receive("pong");
+    // 1つ目の締め切り（3 秒）を過ぎても、2つ目の締め切り（4.5 秒）までは待つ
+    vi.advanceTimersByTime(1_499);
+    expect(t.statuses.at(-1)).toEqual({ kind: "open" });
+    t.last().receive("pong");
+    vi.advanceTimersByTime(PONG_TIMEOUT_MS);
+    expect(t.sockets).toHaveLength(1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "open" });
+  });
+
+  it("ping が重なったとき、あとの ping の pong が返らなければ、その締め切りでつなぎ直す", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive("pong");
+    const kick = {
+      type: "kick",
+      playerId: PlayerId.parse("abcdefgh"),
+    } as const;
+    t.connection.send(kick);
+    vi.advanceTimersByTime(1_500);
+    t.connection.send(kick);
+    vi.advanceTimersByTime(500);
+    t.last().receive("pong");
+    vi.advanceTimersByTime(2_499);
+    expect(t.statuses.at(-1)).toEqual({ kind: "open" });
+    vi.advanceTimersByTime(1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+  });
+
+  it("画面に戻ったら確かめ、pong が返らなければつなぎ直す", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive("pong");
+    t.connection.resume();
+    expect(t.last().sent).toEqual(["ping", "ping"]);
+    vi.advanceTimersByTime(CHECK_TIMEOUT_MS);
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+  });
+
+  it("つなぎ直しを待っている間に画面に戻ったら、待たずにすぐつなぐ", () => {
+    const t = setup();
+    t.last().open();
+    t.last().serverClose(1006);
+    t.connection.resume();
+    vi.advanceTimersByTime(0);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("つなぎ直しを待っている間に電波が戻ったら、ずらしてつなぐ", () => {
+    // 乱数 0.5 で、つなぎ直しの待ちは 250 ミリ秒、電波が戻ったときのずらしは 500 ミリ秒
+    const t = setup(() => 0.5);
+    t.last().open();
+    t.last().serverClose(1006);
+    t.connection.online();
+    vi.advanceTimersByTime(ONLINE_SPREAD_MS / 2 - 1);
+    expect(t.sockets).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("電波が切れている間につなぎ始めた接続は、電波が戻ったら見限って、ずらしてつなぎ直す", () => {
+    const t = setup(() => 0);
+    t.connection.offline();
+    vi.advanceTimersByTime(0);
+    // 電波が無い間につなぎ始めた接続
+    const second = t.last();
+    expect(t.sockets).toHaveLength(2);
+    t.connection.online();
+    expect(second.closedByClient).toBe(true);
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+    vi.advanceTimersByTime(0);
+    expect(t.sockets).toHaveLength(3);
+  });
+
+  it("画面に戻って始めたつなぐ途中の接続は、電波が戻った知らせが続いても見限らない", () => {
+    // スマホでは、画面に戻った知らせと電波が戻った知らせが、ほぼ同時に届くことがある
+    const t = setup();
+    t.last().open();
+    t.last().serverClose(1006);
+    t.connection.resume();
+    vi.advanceTimersByTime(0);
+    const second = t.last();
+    t.connection.online();
+    expect(second.closedByClient).toBe(false);
+    vi.advanceTimersByTime(ONLINE_SPREAD_MS);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("電波が戻ったとき、つながっていれば確かめるだけにする", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive("pong");
+    t.connection.online();
+    expect(t.last().sent).toEqual(["ping", "ping"]);
+    t.last().receive("pong");
+    vi.advanceTimersByTime(PONG_TIMEOUT_MS);
+    expect(t.sockets).toHaveLength(1);
+  });
+
+  it("電波が切れたら、pong を待たずにつなぎ直しに移る", () => {
+    const t = setup();
+    const first = t.last();
+    first.open();
+    t.connection.offline();
+    expect(t.statuses.at(-1)).toEqual({ kind: "reconnecting" });
+    expect(first.closedByClient).toBe(true);
+  });
+
+  it("送りすぎで待っている間は、画面や電波が戻っても早めない", () => {
+    const t = setup();
+    t.last().open();
+    t.last().receive(bye("rateLimited"));
+    t.connection.resume();
+    t.connection.online();
+    t.connection.offline();
+    vi.advanceTimersByTime(59_999);
+    expect(t.sockets).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("stop の後は、画面や電波が戻っても何もしない", () => {
+    const t = setup();
+    t.last().open();
+    t.connection.stop();
+    t.connection.resume();
+    t.connection.online();
+    t.connection.offline();
+    expect(vi.getTimerCount()).toBe(0);
     expect(t.sockets).toHaveLength(1);
   });
 });

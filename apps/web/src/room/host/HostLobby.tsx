@@ -1,16 +1,11 @@
 import type { ClientMessage, PlayerSummary, RoomId } from "@bingo/protocol";
-import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
 import { WIN_READY, ruleSummary } from "../../rules/summary";
 import type { HostView } from "../../state/room";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import ui from "../../ui/ui.module.scss";
 import styles from "./host.module.scss";
-
-/** 参加用の URL（LINE で開いたときに外部のブラウザで開かせる指定を付ける） */
-function joinUrl(roomId: RoomId): string {
-  return `${location.origin}/r/${roomId}?openExternalBrowser=1`;
-}
+import { JoinQr } from "./JoinQr";
 
 /** 募集画面 */
 export function HostLobby({
@@ -42,12 +37,7 @@ export function HostLobby({
       <div className={styles.layout}>
         <section className={`${ui.card} ${styles.join}`}>
           <h2 className={ui.subtitle}>参加はこちら</h2>
-          <QRCodeSVG
-            value={joinUrl(roomId)}
-            className={styles.qr}
-            marginSize={2}
-            title="参加用の QR コード"
-          />
+          <JoinQr roomId={roomId} className={styles.qr} />
           <p className={styles.url}>
             {location.host}/r/
             <span className={styles.roomId}>{roomId}</span>

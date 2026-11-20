@@ -44,7 +44,20 @@ export const PONG_TIMEOUT_MS = 10_000;
  * 電波が無いと、つなぐ途中（CONNECTING）のまま長く残ることがあるため
  */
 export const CONNECT_TIMEOUT_MS = 10_000;
-/** つなぎ直すまでの待ち時間（失敗が続くほど延ばす。最大 10 秒） */
+/**
+ * 画面に戻ったとき・電波が戻ったとき・メッセージを送った直後に確かめる ping で、pong を待つ時間。
+ * ふつうの回線なら pong は1秒もかからずに返る（decisions.md 手順5の (a) の (2)・(5)）
+ */
+export const CHECK_TIMEOUT_MS = 3_000;
+/**
+ * 電波が戻ったときに、つなぎ直す時刻をずらす幅。会場の Wi-Fi が戻ると全員の端末に同時に知らせが届くので、
+ * 一斉にサーバーへ押し寄せないようにする（decisions.md 手順5の (a) の (3)）
+ */
+export const ONLINE_SPREAD_MS = 1_000;
+/**
+ * つなぎ直すまでの待ち時間の上限（失敗が続くほど延ばす。最大 10 秒）。
+ * 実際の待ち時間は、0 からこの値までの乱数にする（full jitter。decisions.md 手順5の (a) の (3)）
+ */
 export const retryDelay = (attempt: number) =>
   Math.min(10_000, 500 * 2 ** Math.min(attempt, 5));
 
@@ -65,8 +78,18 @@ export interface SocketLike {
 }
 
 export interface RoomConnection {
-  /** つながっているときだけ送る（つながっていなければ捨てる） */
+  /**
+   * つながっているときだけ送る（つながっていなければ捨てる）。
+   * 送った直後に ping を送り、CHECK_TIMEOUT_MS のうちに pong が返らなければ、届かなかったとみなしてつなぎ直す
+   * （pong はメッセージと同じ接続を順番どおりに通るので、返ればメッセージも届いている）
+   */
   send(message: ClientMessage): void;
+  /** 画面に戻った。つながっていれば確かめ、つなぎ直しを待っている間なら、待たずにすぐつなぐ */
+  resume(): void;
+  /** 電波が戻った。resume と同じだが、つなぎ直すときは ONLINE_SPREAD_MS の範囲でずらす */
+  online(): void;
+  /** 電波が切れた。pong を待たずに切れたとみなし、つなぎ直しに移る */
+  offline(): void;
   /** 接続をやめる（もうつなぎ直さない） */
   stop(): void;
 }
@@ -103,15 +126,28 @@ export function connectRoom(
     readonly onMessage: (message: ServerMessage) => void;
   },
   createSocket: (url: string) => SocketLike = (u) => new WebSocket(u),
+  /** 0 以上 1 未満の乱数（つなぎ直す時刻をずらすのに使う。テストで固定できるように外から渡す） */
+  random: () => number = Math.random,
 ): RoomConnection {
   let stopped = false;
   let attempt = 0;
   /** 今の接続（見限った・片付けた接続は null） */
   let current: SocketLike | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * retryTimer で何を待っているか。retry: 切れたのでつなぎ直す、cooldown: 送りすぎで切られた
+   * （cooldown の間は、画面や電波が戻っても早めない）
+   */
+  let waiting: "retry" | "cooldown" | null = null;
   let pingTimer: ReturnType<typeof setInterval> | undefined;
   let pongTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 送ったのに pong がまだ返っていない ping の締め切り（送った順。pong も送った順に返る） */
+  const deadlines: number[] = [];
   let connectTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 電波が切れた知らせを受けてから、戻った知らせを受けるまでの間か */
+  let offlineNow = false;
+  /** 今の接続を、電波が切れている間につなぎ始めたか（電波が戻ったら、その接続は見限る） */
+  let startedOffline = false;
 
   /** 接続を見限る（以後の知らせは無視し、こちらから閉じる） */
   const drop = (ws: SocketLike) => {
@@ -120,6 +156,7 @@ export function connectRoom(
     clearInterval(pingTimer);
     clearTimeout(pongTimer);
     pongTimer = undefined;
+    deadlines.length = 0;
     try {
       ws.close();
     } catch {
@@ -134,8 +171,40 @@ export function connectRoom(
 
   const reconnect = () => {
     handlers.onStatus({ kind: "reconnecting" });
-    retryTimer = setTimeout(open, retryDelay(attempt));
+    waiting = "retry";
+    retryTimer = setTimeout(open, Math.floor(random() * retryDelay(attempt)));
     attempt += 1;
+  };
+
+  /** つながっている接続（つなぐ途中・見限った後は null） */
+  const openSocket = (): SocketLike | null =>
+    current?.readyState === WebSocket.OPEN ? current : null;
+
+  /** 返っていない ping のうち、一番早い締め切りに pong を待つタイマーをかけ直す（なければ外す） */
+  const watchPongs = (ws: SocketLike) => {
+    clearTimeout(pongTimer);
+    pongTimer = undefined;
+    if (deadlines.length === 0) return;
+    const earliest = Math.min(...deadlines);
+    pongTimer = setTimeout(
+      () => {
+        if (current !== ws) return;
+        drop(ws);
+        reconnect();
+      },
+      Math.max(0, earliest - Date.now()),
+    );
+  };
+
+  /**
+   * ping を送り、timeoutMs のうちに pong が返らなければ接続を見限ってつなぎ直す。
+   * ping が重なったときも、それぞれの ping に timeoutMs ずつ待つ
+   * （pong は送った順に返るので、返ってきたら一番古い締め切りを外す）
+   */
+  const ping = (ws: SocketLike, timeoutMs: number) => {
+    ws.send("ping");
+    deadlines.push(Date.now() + timeoutMs);
+    watchPongs(ws);
   };
 
   /** サーバーが切った理由に応じて、終わるか・待ってからつなぎ直すかを決める */
@@ -149,6 +218,7 @@ export function connectRoom(
       case "rateLimited": {
         const wait = RATE_LIMIT_COOLDOWN_SECONDS * 1000;
         handlers.onStatus({ kind: "cooldown", until: Date.now() + wait });
+        waiting = "cooldown";
         retryTimer = setTimeout(open, wait);
         return;
       }
@@ -156,9 +226,11 @@ export function connectRoom(
   };
 
   function open() {
+    waiting = null;
     if (stopped) return;
     const ws = createSocket(url);
     current = ws;
+    startedOffline = offlineNow;
     connectTimer = setTimeout(() => {
       if (current !== ws) return;
       drop(ws);
@@ -170,27 +242,20 @@ export function connectRoom(
       clearTimeout(connectTimer);
       attempt = 0;
       handlers.onStatus({ kind: "open" });
-      const ping = () => {
-        ws.send("ping");
-        // 前の ping の答えを待っている間は、待ち時間を延ばさない
-        pongTimer ??= setTimeout(() => {
-          if (current !== ws) return;
-          drop(ws);
-          reconnect();
-        }, PONG_TIMEOUT_MS);
-      };
       // つないだ直後にも1回送る。workerd の不具合で、クライアントが一度も送っていない接続を
       // サーバーが切ると、TCP の切断が遅れる（本番でも約 10 秒、ルームが忙しいと閉じない）ため。
       // 先に1回送っておけば、すぐ閉じる（docs/architecture.md、workerd#7566）
-      ping();
-      pingTimer = setInterval(ping, PING_INTERVAL_MS);
+      ping(ws, PONG_TIMEOUT_MS);
+      pingTimer = setInterval(() => {
+        ping(ws, PONG_TIMEOUT_MS);
+      }, PING_INTERVAL_MS);
     });
 
     ws.addEventListener("message", (event) => {
       if (current !== ws) return;
       if (event.data === "pong") {
-        clearTimeout(pongTimer);
-        pongTimer = undefined;
+        deadlines.shift();
+        watchPongs(ws);
         return;
       }
       const parsed = parseServerMessage(event.data);
@@ -221,12 +286,50 @@ export function connectRoom(
     });
   }
 
+  /** 画面や電波が戻ったとき。つながっていれば確かめ、つなぎ直しを待っている間なら wait ミリ秒後につなぐ */
+  const wake = (wait: number) => {
+    if (stopped) return;
+    const ws = openSocket();
+    if (ws !== null) {
+      ping(ws, CHECK_TIMEOUT_MS);
+      return;
+    }
+    if (waiting !== "retry") return;
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(open, wait);
+  };
+
   open();
   return {
     send(message) {
-      if (current?.readyState === WebSocket.OPEN) {
-        current.send(JSON.stringify(message));
+      const ws = openSocket();
+      if (ws === null) return;
+      ws.send(JSON.stringify(message));
+      ping(ws, CHECK_TIMEOUT_MS);
+    },
+    resume() {
+      wake(0);
+    },
+    online() {
+      offlineNow = false;
+      // 電波が無い間に始めたつなぐ途中の接続は、つながらないまま残りやすい。見限ってつなぎ直す
+      // （画面に戻ったときに始めた接続は見限らない。画面に戻った知らせと同時に届くことがあるため）
+      if (
+        !stopped &&
+        current !== null &&
+        openSocket() === null &&
+        startedOffline
+      ) {
+        drop(current);
+        reconnect();
       }
+      wake(Math.floor(random() * ONLINE_SPREAD_MS));
+    },
+    offline() {
+      offlineNow = true;
+      if (stopped || current === null) return;
+      drop(current);
+      reconnect();
     },
     stop() {
       stopped = true;
@@ -242,7 +345,11 @@ export function connectRoom(
  */
 export function useRoomSocket(
   roomId: RoomId,
-  onMessage: (message: ServerMessage) => void,
+  /** 届いたメッセージ。send は、受け取ったのと同じ接続で送り返すときに使う */
+  onMessage: (
+    message: ServerMessage,
+    send: (message: ClientMessage) => void,
+  ) => void,
 ): { status: SocketStatus; send: (message: ClientMessage) => void } {
   const [status, setStatus] = useState<SocketStatus>({ kind: "connecting" });
   const connectionRef = useRef<RoomConnection | null>(null);
@@ -255,12 +362,31 @@ export function useRoomSocket(
       {
         onStatus: setStatus,
         onMessage: (message) => {
-          handleMessage(message);
+          handleMessage(message, (reply) => {
+            connection.send(reply);
+          });
         },
       },
     );
     connectionRef.current = connection;
+    // 画面に戻ったとき・電波が戻ったときはすぐ確かめ、電波が切れたらすぐ切れた扱いにする
+    // （decisions.md 手順5の (a) の (2)）
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") connection.resume();
+    };
+    const onOnline = () => {
+      connection.online();
+    };
+    const onOffline = () => {
+      connection.offline();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
       connection.stop();
       connectionRef.current = null;
     };

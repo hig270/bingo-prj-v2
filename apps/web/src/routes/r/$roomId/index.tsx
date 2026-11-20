@@ -13,10 +13,13 @@ import { fetchMe, joinRoom } from "../../../api/http";
 import { useRoomSocket } from "../../../api/socket";
 import { ConnectionNotice } from "../../../room/ConnectionNotice";
 import { LoadProblem } from "../../../room/LoadProblem";
+import { InAppNotice } from "../../../room/player/InAppNotice";
 import { PlayerGame } from "../../../room/player/PlayerGame";
 import { ResultsView } from "../../../room/ResultsView";
+import { RETURN_HINT } from "../../../room/return-hint";
 import { useExtendSession } from "../../../room/useExtendSession";
 import { ruleSummary } from "../../../rules/summary";
+import { unsentCells } from "../../../state/room";
 import { useRoomStore } from "../../../state/room-store";
 import ui from "../../../ui/ui.module.scss";
 
@@ -65,6 +68,9 @@ function PlayerPage() {
         <main className={ui.page}>
           <h1 className={ui.title}>{room.name}</h1>
           <p>ゲームはすでに始まっています。</p>
+          <p className={ui.muted}>
+            参加していた人は、参加したときと同じブラウザで開くと戻れます。
+          </p>
         </main>
       );
   }
@@ -144,6 +150,7 @@ function JoinForm({
     <main className={ui.page}>
       <h1 className={ui.title}>{room.name}</h1>
       <p className={ui.muted}>ルール: {ruleSummary(room.rule)}</p>
+      <InAppNotice roomId={roomId} />
       <form
         className={ui.card}
         onSubmit={(e) => {
@@ -185,7 +192,16 @@ function PlayerRoom({ roomId }: { readonly roomId: RoomId }) {
   useEffect(() => {
     reset();
   }, [roomId, reset]);
-  const { status, send } = useRoomSocket(roomId, receive);
+  const { status, send } = useRoomSocket(roomId, (message, reply) => {
+    // つなぎ直して全体の状態を受け取ったら、手元で開けたのに届かなかったマスを送り直す
+    // （decisions.md 手順5の (a) の (5)。抽選回は、サーバーに届いた時点で数える）
+    const unsent =
+      message.type === "playerSnapshot"
+        ? unsentCells(useRoomStore.getState().state, message)
+        : [];
+    receive(message);
+    for (const cell of unsent) reply({ type: "open", cell });
+  });
   useExtendSession(
     roomId,
     state.view === "player" && state.game.status === "playing",
@@ -215,6 +231,7 @@ function PlayerRoom({ roomId }: { readonly roomId: RoomId }) {
                   <p>
                     ホストがゲームを始めるまで、この画面のままお待ちください。
                   </p>
+                  <p className={ui.muted}>{RETURN_HINT}</p>
                 </>
               );
             case "playing":

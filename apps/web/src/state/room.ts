@@ -1,6 +1,6 @@
 import {
   type BingoNumber,
-  type CellIndex,
+  CellIndex,
   type CellMask,
   type OpenEvent,
   eventOfOpen,
@@ -151,7 +151,7 @@ export function reduceRoom(state: RoomState, action: RoomAction): RoomState {
         view: "player",
         room: action.room,
         me: action.me,
-        game: action.phase,
+        game: withUnsentCells(state, action),
       };
     case "playerJoined":
       if (state.view !== "host") return state;
@@ -311,6 +311,65 @@ export function tapCell(view: PlayerView, cell: CellIndex): TapResult {
     kind: "opened",
     opened,
     event: eventOfOpen(view.room.rule, game.opened, opened),
+  };
+}
+
+type PlayerSnapshot = Extract<ServerMessage, { type: "playerSnapshot" }>;
+
+/**
+ * つなぎ直して全体の状態を受け取ったときに、手元では開けたのにサーバーの記録にないマス
+ * （切れたことに気づく前に押して、届かなかったマス）。画面はこれを送り直す（decisions.md 手順5の (a) の (5)）。
+ * サーバーが受け付けるものだけを選ぶ（同じプレイヤーで、どちらもゲーム中で、番号が公開済みのマス）
+ */
+export function unsentCells(
+  state: RoomState,
+  snapshot: PlayerSnapshot,
+): CellIndex[] {
+  if (state.view !== "player" || state.game.status !== "playing") return [];
+  if (state.me.id !== snapshot.me.id) return [];
+  const phase = snapshot.phase;
+  if (phase.status !== "playing") return [];
+  const card = snapshot.me.card;
+  const local = state.game.opened;
+  const cells: CellIndex[] = [];
+  card.cells.forEach((n, i) => {
+    const cell = CellIndex.parse(i);
+    if (
+      n !== null &&
+      isOpen(local, cell) &&
+      !isOpen(phase.opened, cell) &&
+      phase.draws.includes(n)
+    ) {
+      cells.push(cell);
+    }
+  });
+  return cells;
+}
+
+/**
+ * 受け取った全体の状態に、届かなかったマス（unsentCells）を重ねる。
+ * 画面が送り直したマスは、サーバーが受け付けても知らせを返さないので、ここで開いたままにしておく
+ */
+function withUnsentCells(
+  state: RoomState,
+  snapshot: PlayerSnapshot,
+): PlayerGame {
+  const phase = snapshot.phase;
+  const cells = unsentCells(state, snapshot);
+  if (
+    phase.status !== "playing" ||
+    cells.length === 0 ||
+    state.view !== "player" ||
+    state.game.status !== "playing"
+  ) {
+    return phase;
+  }
+  const opened = cells.reduce(openCell, phase.opened);
+  return {
+    ...phase,
+    opened,
+    // 景品を取ったのが届かなかったマスなら、手元で数えた回を残す（サーバーは送り直しが届いた回で記録する）
+    prizeRound: phase.prizeRound ?? state.game.prizeRound,
   };
 }
 

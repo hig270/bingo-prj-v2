@@ -10,6 +10,7 @@ import {
 import ui from "../../ui/ui.module.scss";
 import { Ball } from "../Ball";
 import { playerNoticeText } from "../notice-text";
+import { useWakeLock } from "../useWakeLock";
 import { BingoCard } from "./BingoCard";
 import styles from "./player.module.scss";
 import { PlayerMenu } from "./PlayerMenu";
@@ -34,6 +35,8 @@ export function PlayerGame({
   readonly send: (message: ClientMessage) => void;
   readonly dispatch: (action: LocalAction) => void;
 }) {
+  // ゲーム中は画面を消さない（decisions.md 手順5の (a) の (1)）
+  useWakeLock(true);
   // 知らせは、同じ文言が続いても出し直せるよう通し番号を付ける
   const [notice, setNotice] = useState<{
     readonly id: number;
