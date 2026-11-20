@@ -128,3 +128,34 @@
     overflow-wrap: anywhere;
   }
 }
+
+// ランキング表と、その下の上位・下位のカード（パソコンでは同じ列に縦に並べる）
+.rankingArea {
+  display: grid;
+  gap: var(--space-md);
+}
+
+// 上位・下位のカード（3 枚まで横に並べ、入らなければ折り返す）
+.pickedCards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  justify-content: center;
+}
+
+.pickedCard {
+  display: grid;
+  gap: var(--space-xs);
+  justify-items: center;
+  margin: 0;
+}
+
+.pickedCaption {
+  display: grid;
+  justify-items: center;
+}
+
+.pickedName {
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}

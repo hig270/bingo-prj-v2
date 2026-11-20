@@ -47,7 +47,10 @@ export const ShownCard = z.object({
 });
 export type ShownCard = z.infer<typeof ShownCard>;
 
-/** 結果画面に出すカードの枚数の上限（同順位の人が多いときは、残りを「ほか ○ 人」と添える） */
+/**
+ * 並べるカードの枚数の上限（結果画面の最下位のカードと、ホスト画面の上位・下位のカード。
+ * 同順位の人が多いときは、残りを「ほか ○ 人」と添える）
+ */
 export const MAX_SHOWN_CARDS = 3;
 
 /**
@@ -82,18 +85,37 @@ export const RankingRow = z.object({
   reach: z.number().int().nonnegative(),
   /** 開けたマスの数（FREE は数えない） */
   opened: z.number().int().nonnegative(),
+  /** 次の抽選で景品獲得ラインに達する確率（0 〜 1。景品獲得ラインが1本なら B、2本以上なら G と同じ値） */
+  nextPrize: z.number().min(0).max(1),
 });
 export type RankingRow = z.infer<typeof RankingRow>;
+
+/** ホスト画面の上位・下位のカード（ランキングの順位つき） */
+export const RankedCard = ShownCard.extend({ rank: Rank });
+export type RankedCard = z.infer<typeof RankedCard>;
+
+/**
+ * ホスト画面の上位または下位のカード（decisions.md 手順4「ホスト画面の上位・下位のカード」）。
+ * cards はランキング表と同じ並び（順位の高い順。同順位は参加した順）。
+ * moreTied は、境目で同順位をまたいだときに、カードを出さなかった同順位の人数
+ */
+export const PickedCards = z.object({
+  cards: z.array(RankedCard).max(MAX_SHOWN_CARDS),
+  moreTied: z.number().int().nonnegative(),
+});
+export type PickedCards = z.infer<typeof PickedCards>;
 
 /**
  * ホスト画面のランキング（順位を争っている人＝景品をまだ取っておらず、放置もしていない人だけ）。
  * rows は上位 RANKING_ROWS 人（同順位は参加した順）。moreTied は、最後の行と同順位なのに載らなかった人数。
- * contenders は順位を争っている人数
+ * contenders は順位を争っている人数。top と bottom は上位・下位のカード（出す人がいなければ cards が空）
  */
 export const HostRanking = z.object({
   rows: z.array(RankingRow).max(RANKING_ROWS),
   moreTied: z.number().int().nonnegative(),
   contenders: z.number().int().nonnegative(),
+  top: PickedCards,
+  bottom: PickedCards,
 });
 export type HostRanking = z.infer<typeof HostRanking>;
 

@@ -64,7 +64,14 @@ function hostWith(
 }
 
 /** 順位を争っている人がいないときのランキング */
-const noRanking = { rows: [], moreTied: 0, contenders: 0 };
+const noCards = { cards: [], moreTied: 0 };
+const noRanking = {
+  rows: [],
+  moreTied: 0,
+  contenders: 0,
+  top: noCards,
+  bottom: noCards,
+};
 
 /** 9マスのカード（1 行目は 1・16・31、2 行目は 2・17・32、3 行目は 3・18・33） */
 const card = Card.parse({
@@ -300,10 +307,13 @@ describe("reduceRoom（ホストのゲーム中）", () => {
           lines: 0,
           reach: 1,
           opened: 3,
+          nextPrize: 0.05,
         },
       ],
       moreTied: 0,
       contenders: 2,
+      top: noCards,
+      bottom: noCards,
     };
     expect(apply(playing, { type: "ranking", ranking })).toMatchObject({
       game: { ranking },

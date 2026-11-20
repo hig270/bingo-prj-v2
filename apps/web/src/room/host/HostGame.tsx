@@ -14,6 +14,7 @@ import ui from "../../ui/ui.module.scss";
 import { DrawHistory } from "../Ball";
 import styles from "./host.module.scss";
 import { NoticeBanner } from "./NoticeBanner";
+import { PickedCardsView } from "./PickedCards";
 import { RankingTable } from "./RankingTable";
 
 type Playing = Extract<HostGameState, { status: "playing" }>;
@@ -176,7 +177,10 @@ export function HostGame({
             </button>
           </div>
         </section>
-        <RankingTable ranking={game.ranking} />
+        <div className={styles.rankingArea}>
+          <RankingTable ranking={game.ranking} />
+          <PickedCardsView ranking={game.ranking} />
+        </div>
       </div>
       <ConfirmDialog
         open={confirmEnd}

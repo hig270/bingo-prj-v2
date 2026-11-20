@@ -124,4 +124,15 @@ describe("expectedKey / expectedDraws", () => {
     expect(expectedKey("3x3", 1, maskOf([0, 1, 2]))).toBeNull();
     expect(expectedKey("3x3", 2, maskOf([0, 1, 2]))).not.toBeNull();
   });
+
+  it("ラインが全部そろっていて、次のビンゴ（本数 + 1）に届かなければ null", () => {
+    const all5 = maskOf([...Array(25).keys()]);
+    expect(
+      expectedKey("5x5", LAYOUTS["5x5"].lines.length + 1, all5),
+    ).toBeNull();
+    const all3 = maskOf([...Array(9).keys()]);
+    expect(
+      expectedKey("3x3", LAYOUTS["3x3"].lines.length + 1, all3),
+    ).toBeNull();
+  });
 });

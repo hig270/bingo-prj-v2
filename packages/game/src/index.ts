@@ -21,6 +21,7 @@ export {
 export { countCompletedLines, countReachLines } from "./lines";
 export { pickNextNumber, remainingNumbers } from "./draw";
 export { ExpectedKey, expectedDraws, expectedKey } from "./expected";
+export { chanceOfHit, chanceWithin } from "./chance";
 export { OpenEvent, eventOfOpen, progressOf, type Progress } from "./progress";
 export {
   Card,
