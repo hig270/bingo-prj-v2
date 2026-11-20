@@ -1,8 +1,65 @@
+// 一番上の行（キャラクター、ルーム名、メニューのボタン）
 .top {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--space-sm);
   align-items: center;
-  justify-content: space-between;
+}
+
+// キャラクターと吹き出しは、抽選中の暗い幕（.overlay）より上に出す（幕の間に開け忘れの知らせが目に入るように）
+.characterButton {
+  position: relative;
+  z-index: 11;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+// ルーム名の欄。吹き出しはこの欄の上に重ねる（メニューのボタンは隠さない）
+.speechArea {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+.roomName {
+  overflow: hidden;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// 吹き出し。キャラクターの側に向いた三角の飾りを付ける。長い文言は2行になり、下の欄に少しかかる
+.speech {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  z-index: 11;
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 2px solid var(--color-text);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  font-size: var(--font-lg);
+  font-weight: bold;
+  line-height: 1.3;
+  translate: 0 -50%;
+  transform-origin: left center;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: -9px;
+    border-width: 7px 9px 7px 0;
+    border-style: solid;
+    border-color: transparent var(--color-text) transparent transparent;
+    translate: 0 -50%;
+  }
 }
 
 .latest {
@@ -87,15 +144,6 @@
     font-size: var(--font-lg);
     font-weight: bold;
   }
-}
-
-// マスを押したときの知らせ（数秒で消える）。消えても高さを保ち、カードが動かないようにする
-.notice {
-  min-height: 2em;
-  margin: 0;
-  font-size: var(--font-xl);
-  font-weight: bold;
-  text-align: center;
 }
 
 // 抽選中は画面全体を暗くし、その上に知らせを出す。下のマスは押せない
