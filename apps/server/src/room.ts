@@ -679,15 +679,19 @@ export class RoomDO extends DurableObject<Env> {
     }
   }
 
-  /** ホスト画面のランキング（期待抽選回数は、公開済みの番号を除いた残りの数で計算する） */
+  /** ホスト画面のランキング（期待抽選回数と確率は、公開済みの番号を除いた残りの数で計算する） */
   private hostRanking(standings: Standings): HostRanking {
     const room = this.room;
     if (room === null || room.phase.status === "lobby") {
       throw new Error("ゲームが始まっていません");
     }
+    const win = room.rule.win;
+    // 逆ビンゴは始められないので、ここには来ない（手順5で作る）
+    if (win.type !== "bingo")
+      throw new Error("逆ビンゴの順位はまだ作っていません");
     const remaining =
       LAYOUTS[room.rule.layout].maxNumber - room.phase.game.draws.length;
-    return hostRanking(standings, room.rule.layout, remaining);
+    return hostRanking(standings, room.rule.layout, win.prizeLines, remaining);
   }
 
   /** 全員に共通の値（順位と結果）を、最初に要ったときに1回だけ作る入れ物 */

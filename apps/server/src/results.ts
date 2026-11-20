@@ -5,6 +5,7 @@ import {
   type CellMask,
   type ExpectedKey,
   LAYOUTS,
+  chanceWithin,
   countOpen,
   expectedDraws,
   progressOf,
@@ -13,6 +14,7 @@ import {
   type DrawRound,
   type HostRanking,
   MAX_SHOWN_CARDS,
+  type PickedCards,
   type PlayerId,
   type PlayerStanding,
   RANKING_ROWS,
@@ -139,10 +141,14 @@ function withRanks<T>(
   return ranked;
 }
 
-/** ホスト画面のランキング（上位 RANKING_ROWS 人）。remaining は残りの番号の数 */
+/**
+ * ホスト画面のランキング（上位 RANKING_ROWS 人と、上位・下位のカード）。
+ * prizeLines は景品獲得ラインの本数、remaining は残りの番号の数
+ */
 export function hostRanking(
   standings: Standings,
   layout: CardLayout,
+  prizeLines: number,
   remaining: number,
 ): HostRanking {
   const free = LAYOUTS[layout].free === null ? 0 : 1;
@@ -157,6 +163,8 @@ export function hostRanking(
       reach: progress.reach,
       // FREE は全員が最初から開いているので数えない（decisions.md 手順4）
       opened: countOpen(c.player.opened) - free,
+      // 順位を争っている人はまだ景品獲得ラインに達していないので null にならない（standingsOf と同じ理由で止める）
+      nextPrize: chanceOrThrow(layout, prizeLines, c.player.opened, remaining),
     };
   });
   const lastRank = rows.at(-1)?.rank;
@@ -166,6 +174,89 @@ export function hostRanking(
       .slice(RANKING_ROWS)
       .filter((c) => c.rank === lastRank).length,
     contenders: standings.contenders.length,
+    ...pickCards(standings.contenders),
+  };
+}
+
+function chanceOrThrow(
+  layout: CardLayout,
+  prizeLines: number,
+  opened: CellMask,
+  remaining: number,
+): number {
+  const chance = chanceWithin(layout, prizeLines, opened, remaining, 1);
+  if (chance === null) {
+    throw new Error("景品を取っていないのに、景品獲得ラインに達している");
+  }
+  return chance;
+}
+
+/**
+ * 上位・下位のカードの枚数（順位を争っている人数で決める。decisions.md 手順4「ホスト画面の上位・下位のカード」）。
+ * 6人以上なら 3・3、5人 2・3、4人 2・2、3人 1・2、2人 1・1、1人 1・0、0人 0・0
+ */
+export function pickedCounts(contenders: number): {
+  readonly top: number;
+  readonly bottom: number;
+} {
+  if (contenders === 0) return { top: 0, bottom: 0 };
+  const top = Math.max(
+    1,
+    Math.min(MAX_SHOWN_CARDS, Math.floor(contenders / 2)),
+  );
+  return { top, bottom: Math.min(MAX_SHOWN_CARDS, contenders - top) };
+}
+
+/**
+ * 上位・下位のカードに出す人を選ぶ（contenders はランキング表と同じ並び）。
+ * 上位は並びの先頭から選ぶ。下位は、上位のカードの誰よりも順位が下の人だけから、順位の低い人たちの組から選ぶ。
+ * どちらも、同順位の組の途中で枚数が尽きたら、その組の中は参加した順に選び、残りの人数を moreTied にする
+ */
+function pickCards(contenders: Standings["contenders"]): {
+  readonly top: PickedCards;
+  readonly bottom: PickedCards;
+} {
+  const counts = pickedCounts(contenders.length);
+  const top = contenders.slice(0, counts.top);
+  const topLast = top.at(-1)?.rank;
+  const topMore = contenders
+    .slice(counts.top)
+    .filter((c) => c.rank === topLast).length;
+
+  // 下位: 順位の低い組から順に、組の中は参加した順のまま取る
+  const below = contenders.filter(
+    (c) => topLast !== undefined && c.rank > topLast,
+  );
+  const groups: (typeof below)[] = [];
+  for (const c of below) {
+    const group = groups.at(-1);
+    if (group?.[0]?.rank === c.rank) group.push(c);
+    else groups.push([c]);
+  }
+  const bottom: typeof below = [];
+  let bottomMore = 0;
+  for (const group of groups.reverse()) {
+    const room = counts.bottom - bottom.length;
+    if (room <= 0) break;
+    const taken = group.slice(0, room);
+    // 画面ではランキング表と同じ並び（順位の高い順）に並べるので、前に足していく
+    bottom.unshift(...taken);
+    bottomMore = group.length - taken.length;
+  }
+
+  return {
+    top: { cards: top.map(shownCard), moreTied: topMore },
+    bottom: { cards: bottom.map(shownCard), moreTied: bottomMore },
+  };
+}
+
+function shownCard(c: Contender) {
+  return {
+    id: c.player.id,
+    name: c.player.name,
+    card: c.player.card,
+    opened: c.player.opened,
+    rank: c.rank,
   };
 }
 

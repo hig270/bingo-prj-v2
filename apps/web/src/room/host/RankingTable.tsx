@@ -1,6 +1,6 @@
 import type { HostRanking } from "@bingo/protocol";
 import ui from "../../ui/ui.module.scss";
-import { formatExpected } from "../format";
+import { formatChanceDetailed, formatExpected } from "../format";
 import styles from "./host.module.scss";
 
 /**
@@ -25,6 +25,7 @@ export function RankingTable({ ranking }: { readonly ranking: HostRanking }) {
               <th className={styles.num}>ビンゴ</th>
               <th className={styles.num}>リーチ</th>
               <th className={styles.num}>開けた数</th>
+              <th className={styles.num}>次で景品</th>
             </tr>
           </thead>
           <tbody>
@@ -38,6 +39,9 @@ export function RankingTable({ ranking }: { readonly ranking: HostRanking }) {
                 <td className={styles.num}>{row.lines}</td>
                 <td className={styles.num}>{row.reach}</td>
                 <td className={styles.num}>{row.opened}</td>
+                <td className={styles.num}>
+                  {formatChanceDetailed(row.nextPrize)}
+                </td>
               </tr>
             ))}
           </tbody>
