@@ -1,0 +1,10 @@
+// 共通のボタン（ui.button）を、絵だけの正方形にする
+.button {
+  min-width: 48px;
+  padding: var(--space-sm);
+}
+
+.icon {
+  width: 24px;
+  height: 24px;
+}

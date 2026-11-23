@@ -4,6 +4,8 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { DrawStage, type DrawStageHandle } from "../../draw/DrawStage";
 import { DEFAULT_TIMING } from "../../draw/timing";
 import type { DrawSound } from "../../sound/draw-sound";
+import { useSoundSetting } from "../../sound/sound-setting";
+import { SpeakerButton } from "../../sound/SpeakerButton";
 import type {
   HostGame as HostGameState,
   HostView,
@@ -48,6 +50,10 @@ export function HostGame({
    */
   const [animating, setAnimating] = useState(false);
   const current = game.current;
+  // 音のオン／オフ（decisions.md 手順5の (b) の (5)）。設定はプレイヤーの画面とは別に保存する
+  const [soundOn, setSoundOn] = useSoundSetting("host", (on) => {
+    sound.setMuted(!on);
+  });
 
   /** 画面が外れたか（外れた後も演出が進むことがあるので、その後の音は鳴らさない） */
   const unmountedRef = useRef(false);
@@ -177,7 +183,7 @@ export function HostGame({
             抽選履歴（{game.draws.length} / {maxNumber}）
           </h2>
           <DrawHistory draws={game.draws} />
-          <div>
+          <div className={ui.row}>
             <button
               type="button"
               className={`${ui.button} ${ui.secondary}`}
@@ -188,6 +194,7 @@ export function HostGame({
             >
               ゲーム終了
             </button>
+            <SpeakerButton on={soundOn} onToggle={setSoundOn} />
           </div>
         </section>
         <div className={styles.rankingArea}>

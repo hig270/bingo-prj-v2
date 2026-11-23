@@ -10,6 +10,9 @@ import {
 import ui from "../../ui/ui.module.scss";
 import { Ball } from "../Ball";
 import { playerNoticeText } from "../notice-text";
+import { playerSound, soundsOfTap } from "../../sound/player-sound";
+import { useSoundSetting } from "../../sound/sound-setting";
+import { SpeakerButton } from "../../sound/SpeakerButton";
 import { useWakeLock } from "../useWakeLock";
 import type { Mood } from "../character/Character";
 import { BingoCard } from "./BingoCard";
@@ -84,7 +87,14 @@ export function PlayerGame({
     sayNumber(latest);
   }, [latest]);
 
+  // 効果音（decisions.md 手順5の (b) の (4)・(5)）。設定はホストの画面とは別に保存する
+  const [soundOn, setSoundOn] = useSoundSetting("player", (on) => {
+    playerSound.setMuted(!on);
+  });
+
   function chat() {
+    // 再読み込みで戻った人は、押したときに音を有効にする（以下、マスとスピーカーボタンも同じ）
+    playerSound.unlock();
     // 開け忘れの知らせが出ている間は、タップしても何も起こらない
     if (forgot) return;
     const { index, text } = pickChat(lastChat.current, Math.random);
@@ -93,7 +103,9 @@ export function PlayerGame({
   }
 
   function tap(cell: CellIndex) {
+    playerSound.unlock();
     const result = tapCell(view, cell);
+    playerSound.play(soundsOfTap(result));
     switch (result.kind) {
       case "ignored":
         return;
@@ -119,7 +131,18 @@ export function PlayerGame({
       <PlayerCharacter
         speech={visibleSpeech(timed, forgot)}
         roomName={view.room.name}
-        menu={<PlayerMenu room={view.room} draws={game.draws} />}
+        menu={
+          <div className={styles.topButtons}>
+            <SpeakerButton
+              on={soundOn}
+              onToggle={(next) => {
+                playerSound.unlock();
+                setSoundOn(next);
+              }}
+            />
+            <PlayerMenu room={view.room} draws={game.draws} />
+          </div>
+        }
         onTap={chat}
       />
       <section className={styles.latest} aria-live="polite">

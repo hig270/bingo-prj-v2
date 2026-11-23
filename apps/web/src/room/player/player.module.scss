@@ -62,6 +62,12 @@
   }
 }
 
+// 一番上の行の右のボタン（スピーカー、メニュー）
+.topButtons {
+  display: flex;
+  gap: var(--space-xs);
+}
+
 .latest {
   display: grid;
   gap: var(--space-xs);
