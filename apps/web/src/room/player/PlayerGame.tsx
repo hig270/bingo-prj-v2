@@ -1,6 +1,6 @@
-import { LAYOUTS, type CellIndex } from "@bingo/game";
+import { LAYOUTS, type BingoNumber, type CellIndex } from "@bingo/game";
 import type { ClientMessage } from "@bingo/protocol";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   tapCell,
   type LocalAction,
@@ -10,16 +10,29 @@ import {
 import ui from "../../ui/ui.module.scss";
 import { Ball } from "../Ball";
 import { playerNoticeText } from "../notice-text";
+import { playerSound, soundsOfTap } from "../../sound/player-sound";
+import { useSoundSetting } from "../../sound/sound-setting";
+import { SpeakerButton } from "../../sound/SpeakerButton";
 import { useWakeLock } from "../useWakeLock";
+import type { Mood } from "../character/Character";
 import { BingoCard } from "./BingoCard";
 import styles from "./player.module.scss";
+import { PlayerCharacter } from "./PlayerCharacter";
 import { PlayerMenu } from "./PlayerMenu";
 import { PlayerStats } from "./PlayerStats";
+import {
+  acceptSpeech,
+  hasForgotten,
+  numberText,
+  pickChat,
+  visibleSpeech,
+  type TimedSpeech,
+} from "./speech";
 
 type Playing = Extract<PlayerGameState, { status: "playing" }>;
 
-/** マスを押したときの知らせを出しておく長さ（ミリ秒） */
-const NOTICE_MS = 3000;
+/** 吹き出し（開け忘れ以外）を出しておく長さ（ミリ秒） */
+const SPEECH_MS = 3000;
 
 /** プレイヤーのゲーム画面 */
 export function PlayerGame({
@@ -37,53 +50,101 @@ export function PlayerGame({
 }) {
   // ゲーム中は画面を消さない（decisions.md 手順5の (a) の (1)）
   useWakeLock(true);
-  // 知らせは、同じ文言が続いても出し直せるよう通し番号を付ける
-  const [notice, setNotice] = useState<{
-    readonly id: number;
-    readonly text: string;
-  } | null>(null);
+  // キャラクターの吹き出し（decisions.md 手順5の (b)）。開け忘れは手元の状態から毎回求め、
+  // それ以外の吹き出しは数秒で消す。どれを出すかは speech.ts の優先順位で決める
+  const forgot = hasForgotten(
+    view.me.card,
+    game.draws,
+    game.opened,
+    game.drawing,
+  );
+  const [timed, setTimed] = useState<TimedSpeech | null>(null);
+  const nextId = useRef(1);
+  const lastChat = useRef<number | null>(null);
   useEffect(() => {
-    if (notice === null) return;
+    if (timed === null) return;
     const timer = setTimeout(() => {
-      setNotice(null);
-    }, NOTICE_MS);
+      setTimed(null);
+    }, SPEECH_MS);
     return () => {
       clearTimeout(timer);
     };
-  }, [notice]);
-  const show = (text: string) => {
-    setNotice((prev) => ({ id: (prev?.id ?? 0) + 1, text }));
+  }, [timed]);
+  const say = (kind: TimedSpeech["kind"], text: string, mood: Mood) => {
+    const incoming = { id: nextId.current++, kind, text, mood };
+    setTimed((current) => acceptSpeech(current, incoming, forgot));
   };
 
+  // 番号が公開されたら「12番！」と言う（開いた直後や再読み込みのときの番号では言わない）
+  const latest = game.draws.at(-1);
+  const sayNumber = useEffectEvent((n: BingoNumber | undefined) => {
+    if (n !== undefined) say("number", numberText(n), "talk");
+  });
+  const shownLatest = useRef(latest);
+  useEffect(() => {
+    if (shownLatest.current === latest) return;
+    shownLatest.current = latest;
+    sayNumber(latest);
+  }, [latest]);
+
+  // 効果音（decisions.md 手順5の (b) の (4)・(5)）。設定はホストの画面とは別に保存する
+  const [soundOn, setSoundOn] = useSoundSetting("player", (on) => {
+    playerSound.setMuted(!on);
+  });
+
+  function chat() {
+    // 再読み込みで戻った人は、押したときに音を有効にする（以下、マスとスピーカーボタンも同じ）
+    playerSound.unlock();
+    // 開け忘れの知らせが出ている間は、タップしても何も起こらない
+    if (forgot) return;
+    const { index, text } = pickChat(lastChat.current, Math.random);
+    lastChat.current = index;
+    say("chat", text, "talk");
+  }
+
   function tap(cell: CellIndex) {
+    playerSound.unlock();
     const result = tapCell(view, cell);
+    playerSound.play(soundsOfTap(result));
     switch (result.kind) {
       case "ignored":
         return;
       case "notDrawn":
         // まだ出ていない番号は、サーバーには送らない
-        show("まだ出ていません");
+        say("event", "まだ出ていません", "talk");
         return;
       case "opened":
         dispatch({ type: "local/open", cell });
         send({ type: "open", cell });
         if (result.event !== null) {
-          show(playerNoticeText(result.event, view.room.rule));
+          say("event", playerNoticeText(result.event, view.room.rule), "happy");
         }
         return;
     }
   }
 
-  const latest = game.draws.at(-1);
   const allDrawn =
     game.draws.length >= LAYOUTS[view.room.rule.layout].maxNumber;
 
   return (
     <>
-      <div className={styles.top}>
-        <span className={ui.muted}>{view.room.name}</span>
-        <PlayerMenu room={view.room} draws={game.draws} />
-      </div>
+      <PlayerCharacter
+        speech={visibleSpeech(timed, forgot)}
+        roomName={view.room.name}
+        menu={
+          <div className={styles.topButtons}>
+            <SpeakerButton
+              on={soundOn}
+              onToggle={(next) => {
+                playerSound.unlock();
+                setSoundOn(next);
+              }}
+            />
+            <PlayerMenu room={view.room} draws={game.draws} />
+          </div>
+        }
+        onTap={chat}
+      />
       <section className={styles.latest} aria-live="polite">
         {latest === undefined ? (
           <p className={ui.muted}>まだ抽選されていません</p>
@@ -103,9 +164,6 @@ export function PlayerGame({
         disabled={!connected}
         onTap={tap}
       />
-      <p key={notice?.id} className={styles.notice} aria-live="assertive">
-        {notice?.text}
-      </p>
       {game.drawing && (
         <div className={styles.overlay} role="status">
           <p className={styles.overlayTitle}>抽選中です</p>

@@ -1,0 +1,30 @@
+// 仮のキャラクター（丸い顔）。本物の絵に差し替えるまでの見た目
+.character {
+  display: block;
+  width: 56px;
+  height: 56px;
+  overflow: visible;
+}
+
+.face {
+  fill: var(--color-character);
+  stroke: var(--color-text);
+  stroke-width: 2;
+}
+
+.ink {
+  fill: var(--color-text);
+}
+
+.line {
+  fill: none;
+  stroke: var(--color-text);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.eyeWhite {
+  fill: #fff;
+  stroke: var(--color-text);
+  stroke-width: 1.5;
+}

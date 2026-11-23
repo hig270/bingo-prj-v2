@@ -19,6 +19,7 @@ import { ResultsView } from "../../../room/ResultsView";
 import { RETURN_HINT } from "../../../room/return-hint";
 import { useExtendSession } from "../../../room/useExtendSession";
 import { ruleSummary } from "../../../rules/summary";
+import { playerSound } from "../../../sound/player-sound";
 import { unsentCells } from "../../../state/room";
 import { useRoomStore } from "../../../state/room-store";
 import ui from "../../../ui/ui.module.scss";
@@ -155,6 +156,9 @@ function JoinForm({
         className={ui.card}
         onSubmit={(e) => {
           e.preventDefault();
+          // ブラウザは操作の中でないと音を出させないので、「参加」を押したときに効果音を有効にする
+          // （decisions.md「音はホスト画面・プレイヤー画面の両方で鳴らす」）
+          playerSound.unlock();
           void submit();
         }}
       >
